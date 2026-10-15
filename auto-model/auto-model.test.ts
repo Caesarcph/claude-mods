@@ -23,7 +23,7 @@ const EXPERT = [
 ].join('\n')
 
 /** The world beneath the mod: the session's own engine, answered from memory. */
-function world(on: any, options: { judgeReply?: string; emptyForOtherModels?: boolean } = {}) {
+function world(on: any, options: { judgeReply?: string; emptyForOtherModels?: boolean; failWith?: string; engine?: any } = {}) {
   mock.store(on)
 
   const seen = {
@@ -55,6 +55,16 @@ function world(on: any, options: { judgeReply?: string; emptyForOtherModels?: bo
 
     // A model the provider does not serve: nothing answers, no usage, no stop reason.
     if (options.emptyForOtherModels && e.model !== SESSION_MODEL) {
+      if (options.failWith !== undefined) {
+        // The engine records the API's error as an assistant row with no role.
+        await options.engine.session.append({
+          message: { type: 'assistant', content: [{ type: 'text', text: options.failWith }] },
+          door: 'response',
+          origin: { kind: 'engine' },
+          uuid: `err-${e.index}`,
+        })
+      }
+
       return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null, usage: null }
     }
 
@@ -385,5 +395,44 @@ describe('sending a model id the API takes', () => {
     expect(seen.steps.map(one => one.model)).toEqual(['claude-haiku-5-5', SESSION_MODEL, SESSION_MODEL])
     const status = await command($, '')
     expect(status.text).toContain('fell back')
+  })
+})
+
+describe('when the chosen model fails', () => {
+  test('the API\'s reason is shown, and a model it will not serve is skipped for the session', async ($, on) => {
+    const seen = world(on, {
+      emptyForOtherModels: true,
+      failWith: "There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it.",
+      engine: $,
+    })
+
+    await $.session.start(START)
+    await command($, 'set easy haiku')
+    await startTurn($, 't1', EASY)
+    await step($, 't1')
+
+    expect(seen.statuses.at(-1)).toContain('claude-haiku-5-5 failed (There\'s an issue with the selected model')
+
+    await startTurn($, 't2', EASY)
+    await step($, 't2')
+
+    // Tried once, then the session's own model from the next turn on.
+    expect(seen.steps.map(one => one.model)).toEqual(['claude-haiku-5-5', SESSION_MODEL, SESSION_MODEL])
+
+    const status = await command($, '')
+    expect(status.text).toContain('Skipped this session: claude-haiku-5-5')
+  })
+
+  test('a failure that can pass is retried on the next turn', async ($, on) => {
+    const seen = world(on, { emptyForOtherModels: true, failWith: 'API Error: Repeated 529 Overloaded errors', engine: $ })
+
+    await $.session.start(START)
+    await command($, 'set easy haiku')
+    await startTurn($, 't1', EASY)
+    await step($, 't1')
+    await startTurn($, 't2', EASY)
+    await step($, 't2')
+
+    expect(seen.steps.map(one => one.model)).toEqual(['claude-haiku-5-5', SESSION_MODEL, 'claude-haiku-5-5', SESSION_MODEL])
   })
 })

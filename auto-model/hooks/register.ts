@@ -13,12 +13,19 @@ import {
   judgePrompt,
   parseJudge,
   resolveModel,
+  isLasting,
+  shortReason,
   sizeOf,
 } from './logic'
 
 type Dollar = EngineInterface
 
 const planAtom = atom({ plugin: 'auto-model', key: 'plan' } as const, null)
+const unavailableAtom = atom({ plugin: 'auto-model', key: 'unavailable' } as const, {})
+
+// The error row the engine appends when a step's request fails (an assistant row
+// with no role, never sent to the model), kept for the step that is waiting on it.
+let lastError = ''
 
 const DEFAULTS: Record<Tier, { model: string; effort: Effort }> = {
   easy: { model: 'sonnet', effort: 'low' },
@@ -116,7 +123,7 @@ const decide = async ($: Dollar, text: string, judgeModel: string, options: Plug
 
 const statusLine = (plan: Plan): string =>
   plan.isFallback
-    ? `auto-model: ${plan.model} was not available, using the session's model`
+    ? `auto-model: ${plan.model} failed (${plan.failure === '' ? 'no response' : plan.failure}); this turn uses the session's model`
     : `auto-model: ${plan.tier} → ${plan.model} · ${plan.effort}`
 
 const statusText = async ($: Dollar, options: PluginOptions): Promise<string> => {
@@ -129,7 +136,13 @@ const statusText = async ($: Dollar, options: PluginOptions): Promise<string> =>
   ]
 
   if (plan !== null && plan.isActive) {
-    lines.push(`Last turn: ${plan.tier} (${plan.reason}) → ${plan.model} · ${plan.effort}${plan.isFallback ? ', fell back to the session model' : ''}.`)
+    lines.push(`Last turn: ${plan.tier} (${plan.reason}) → ${plan.model} · ${plan.effort}${plan.isFallback ? `, fell back to the session model: ${plan.failure === '' ? 'no response' : plan.failure}` : ''}.`)
+  }
+
+  const unavailable = Object.entries(await read($, unavailableAtom))
+
+  if (unavailable.length > 0) {
+    lines.push(`Skipped this session: ${unavailable.map(([model, why]) => `${model} (${why})`).join('; ')}.`)
   }
 
   lines.push('Change a tier: /auto-model set <easy|medium|hard|expert> <model> [low|medium|high|xhigh|max]. Other commands: on, off, try <prompt>, reset.')
@@ -268,6 +281,7 @@ export const register: Register = (on, options) => {
           reason: 'off',
           score: 0,
           isFallback: false,
+          failure: '',
         }))
         $.ui.status(undefined)
       } else {
@@ -283,16 +297,20 @@ export const register: Register = (on, options) => {
           // An alias is then resolved from the known ids alone.
         }
 
+        const model = resolveModel(choice.model, sessionModel)
+        // A model that already failed for good this session is not asked again.
+        const failed = (await read($, unavailableAtom))[model]
         const plan: Plan = {
           turnId: e.turnId,
           tier: verdict.tier,
-          model: resolveModel(choice.model, sessionModel),
+          model,
           effort: choice.effort,
           isActive: true,
           judge: verdict.judge,
           reason: verdict.reason,
           score: verdict.score,
-          isFallback: false,
+          isFallback: failed !== undefined,
+          failure: failed ?? '',
         }
 
         await update($, planAtom, () => plan)
@@ -311,6 +329,8 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined || plan === null || !plan.isActive || plan.isFallback || plan.turnId !== e.turnId) {
       return yield* next(e)
     }
+
+    lastError = ''
 
     const stream = next({ ...e, model: plan.model, effort: plan.effort })
     let sent = 0
@@ -335,10 +355,17 @@ export const register: Register = (on, options) => {
       }
     }
 
-    // Stop switching for the rest of this turn, so it carries on as before.
-    const fallback: Plan = { ...plan, isFallback: true }
+    // Stop switching for the rest of this turn, so it carries on as before;
+    // for the rest of the session too when the failure will not pass.
+    const failure = shortReason(lastError)
+    const fallback: Plan = { ...plan, isFallback: true, failure }
 
     await update($, planAtom, () => fallback)
+
+    if (isLasting(failure)) {
+      await update($, unavailableAtom, current => ({ ...current, [plan.model]: failure }))
+    }
+
     $.ui.status(statusLine(fallback))
 
     const again = next(e)
@@ -349,4 +376,14 @@ export const register: Register = (on, options) => {
 
     return await again.result
   })
+
+  on('session.append', async ($, e, next) => {
+    const message = e.message
+
+    if (e.agentId === undefined && e.door === 'response' && message.type === 'assistant' && message.role === undefined) {
+      lastError = message.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join(' ')
+    }
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
 }

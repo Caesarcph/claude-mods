@@ -236,3 +236,17 @@ export function resolveModel(value: string, sessionModel: string): string {
 export function asModel(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback
 }
+
+// --- When the chosen model fails ----------------------------------------------
+
+/** A failure that will not pass within the session: the model is not served to this account, or its limit is spent. */
+export function isLasting(reason: string): boolean {
+  return /not exist|not have access|no access|not[ _]found|unrecognized|invalid model|usage limit|weekly limit|hit your .*limit|limit (?:reached|exceeded)|out of .*usage|quota/i.test(reason)
+}
+
+/** One line of the API's error text. */
+export function shortReason(text: string, width = 100): string {
+  const line = text.replace(/\s+/g, ' ').trim()
+
+  return line.length <= width ? line : line.slice(0, width - 1) + '…'
+}

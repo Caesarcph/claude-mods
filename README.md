@@ -35,5 +35,6 @@ In automatic mode these are sent as typed: slash commands, `!` shell lines, shor
 
 - `auto-model` is on by default, and `prompt-upgrade`'s automatic mode is off until you run `/better on`.
 - Model aliases (`haiku`, `sonnet`, `opus`) are turned into full model IDs before they are sent.
+- If a chosen model fails, the turn carries on with the session's model and the status line shows the API's reason. A model this account is not served, or whose usage limit is spent, is skipped for the rest of the session (`/auto-model` lists it).
 - `auto-model`'s optional model judge (`judge: model`) uses `judgeModel`, `haiku` by default.
 - Settings made with `/auto-model set` are stored on each machine, not in this repository.
