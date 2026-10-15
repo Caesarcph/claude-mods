@@ -45,7 +45,7 @@
 
 桌面 App 里没有 `/plugin` 命令：点输入框旁边的 **+**，选 **Plugins**，再点 **Add marketplace**，填 `Caesarcph/claude-mods`，最后点 **Add plugin**。
 
-以后更新时，运行 `/plugin marketplace update chenp-mods` 和 `/plugin update <mod>`，然后重启 Claude Code。
+以后更新时，运行 `/plugin marketplace update chenp-mods` 和 `/plugin update <mod>`，然后重启 Claude Code。在系统终端里，对应的命令是 `claude plugin marketplace update chenp-mods` 和 `claude plugin update <mod>@chenp-mods`。如果 prompt-upgrade 还会在右侧弹出一个带 Run 按钮的面板，说明你还在用旧的 0.1 版，需要更新。
 
 ## prompt-upgrade
 
@@ -62,7 +62,9 @@
 | `maxQuestions` | `3` | 最多问 1–4 题。提示词已经很清楚时会少问，甚至不问 |
 | `review` | `send` | 设为 `review` 时，发送前再弹一次确认：发送、先改一下、或发原文 |
 
-**自动模式**（`/better on`）不会处理以下这些，它们会原样发送：
+**自动模式**（`/better on`）直接处理你发送的那条提示词，不会拦截：按下回车后紧接着弹出问题，最终发给 Claude 的就是优化后的版本。在问题上按 Esc，会跳过优化、按原样发送；在改写过程中按 Esc，会取消发送，原文回到输入框。
+
+自动模式不会处理以下这些，它们会原样发送：
 - 斜杠命令、`!` 开头的命令行
 - "好的"、"继续"、"yes" 这类短回复
 - 带附件或 `@` 引用的提示词

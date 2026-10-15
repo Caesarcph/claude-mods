@@ -169,11 +169,15 @@ const review = async ($: Dollar, zh: boolean, upgraded: string): Promise<'send' 
   }
 }
 
-/** The whole upgrade: questions in the chat, the rewrite, then it is sent. */
-const upgrade = async ($: Dollar, original: string, settings: Settings) => {
-  const zh = isChinese(original)
+type Outcome =
+  | { kind: 'send'; text: string }
+  | { kind: 'edit'; text: string }
+  | { kind: 'cancel' }
+  | { kind: 'failed'; why: string }
 
-  isBusy = true
+/** Questions in the chat, then the rewrite. Sends nothing: the caller does, its own way. */
+const prepare = async ($: Dollar, original: string, settings: Settings): Promise<Outcome> => {
+  const zh = isChinese(original)
 
   try {
     $.ui.status(say(zh, 'Prompt Upgrade：正在看你的提示词…', 'Prompt Upgrade: reading your prompt…'))
@@ -197,10 +201,7 @@ const upgrade = async ($: Dollar, original: string, settings: Settings) => {
       const given = await askAll($, questions)
 
       if (given === null) {
-        await putBack($, original)
-        $.ui.log(say(zh, 'Prompt Upgrade：已取消，原文放回了输入框。', 'Prompt Upgrade: cancelled. Your prompt is back in the box.'))
-
-        return
+        return { kind: 'cancel' }
       }
 
       answers = given
@@ -219,15 +220,10 @@ const upgrade = async ($: Dollar, original: string, settings: Settings) => {
     const out = written.isAnswered ? parseRewrite(written.text) : null
 
     if (out === null) {
-      const why = written.isAnswered ? say(zh, '返回格式无法读取', 'the reply could not be read') : whyFailed(zh, written)
-
-      await putBack($, original)
-      $.ui.log(say(zh, `Prompt Upgrade：改写失败（${why}），原文放回了输入框。`, `Prompt Upgrade: the rewrite failed (${why}). Your prompt is back in the box.`))
-
-      return
+      return { kind: 'failed', why: written.isAnswered ? say(zh, '返回格式无法读取', 'the reply could not be read') : whyFailed(zh, written) }
     }
 
-    let text = out.prompt
+    await remember($, original, out.prompt, out.added)
 
     if (settings.isReview) {
       $.ui.status(undefined)
@@ -235,49 +231,69 @@ const upgrade = async ($: Dollar, original: string, settings: Settings) => {
       const choice = await review($, zh, out.prompt)
 
       if (choice === 'edit') {
-        await remember($, original, out.prompt, out.added)
-        await putBack($, out.prompt)
-        $.ui.log(say(zh, 'Prompt Upgrade：优化版在输入框里，改完按回车发送。', 'Prompt Upgrade: the upgrade is in the prompt box; edit it and press Enter.'))
-
-        return
+        return { kind: 'edit', text: out.prompt }
       }
 
-      text = choice === 'original' ? original : out.prompt
+      if (choice === 'original') {
+        return { kind: 'send', text: original }
+      }
     }
 
-    if (text === out.prompt) {
-      await remember($, original, out.prompt, out.added)
+    const shown = out.added.slice(0, 3)
+    const more = out.added.length - shown.length
+    const added =
+      shown.length === 0
+        ? ''
+        : say(
+            zh,
+            ` · 补充了 ${shown.join('、')}${more > 0 ? ` 等 ${out.added.length} 项` : ''}`,
+            ` · added ${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}`,
+          )
 
-      const added = out.added.length === 0 ? '' : say(zh, ` · 补充了：${out.added.join('；')}`, ` · added: ${out.added.join('; ')}`)
+    $.ui.log(say(zh, `Prompt Upgrade：${countWords(original)} → ${countWords(out.prompt)} 字${added}`, `Prompt Upgrade: ${countWords(original)} → ${countWords(out.prompt)} words${added}`))
 
-      $.ui.log(say(zh, `Prompt Upgrade：${countWords(original)} → ${countWords(text)} 字${added}`, `Prompt Upgrade: ${countWords(original)} → ${countWords(text)} words${added}`))
-    }
-
-    $.ui.status(undefined)
-    isBusy = false
-
-    try {
-      await $.prompt.submit({ text, asUser: true })
-    } catch {
-      await putBack($, text)
-      $.ui.log(say(zh, 'Prompt Upgrade：没能发送，提示词放在了输入框里。', 'Prompt Upgrade: could not send it; the prompt is in the box.'))
-    }
+    return { kind: 'send', text: out.prompt }
   } catch {
-    await putBack($, original)
-    $.ui.log(say(zh, 'Prompt Upgrade：出了点问题，原文放回了输入框，什么都没发送。', 'Prompt Upgrade: something went wrong. Your prompt is back in the box; nothing was sent.'))
+    return { kind: 'failed', why: say(zh, '出了点问题', 'something went wrong') }
   } finally {
-    isBusy = false
     $.ui.status(undefined)
   }
 }
 
-/** The upgrade outlives the command or prompt that asked for it, so it runs from a timer. */
-const start = ($: Dollar, original: string, settings: Settings) => {
+/** `/better <prompt>`: runs from a timer, since it outlives the command, and submits the result itself. */
+const startCommand = ($: Dollar, original: string, settings: Settings) => {
+  const zh = isChinese(original)
+
   isBusy = true
   $.clock.after(0, () => {
-    void upgrade($, original, settings).catch(() => {
-      isBusy = false
-    })
+    void (async () => {
+      try {
+        const outcome = await prepare($, original, settings)
+
+        isBusy = false
+
+        if (outcome.kind === 'send') {
+          try {
+            await $.prompt.submit({ text: outcome.text, asUser: true })
+          } catch {
+            await putBack($, outcome.text)
+            $.ui.log(say(zh, 'Prompt Upgrade：没能发送，提示词放在了输入框里。', 'Prompt Upgrade: could not send it; the prompt is in the box.'))
+          }
+        } else if (outcome.kind === 'edit') {
+          await putBack($, outcome.text)
+          $.ui.log(say(zh, 'Prompt Upgrade：优化版在输入框里，改完按回车发送。', 'Prompt Upgrade: the upgrade is in the prompt box; edit it and press Enter.'))
+        } else {
+          await putBack($, original)
+          $.ui.log(
+            outcome.kind === 'cancel'
+              ? say(zh, 'Prompt Upgrade：已取消，原文放回了输入框。', 'Prompt Upgrade: cancelled. Your prompt is back in the box.')
+              : say(zh, `Prompt Upgrade：改写失败（${outcome.why}），原文放回了输入框。`, `Prompt Upgrade: the rewrite failed (${outcome.why}). Your prompt is back in the box.`),
+          )
+        }
+      } finally {
+        isBusy = false
+      }
+    })().catch(() => undefined)
   })
 }
 
@@ -350,7 +366,7 @@ export const register: Register = (on, options) => {
         return { text: say(zh, '上一个优化还没完成，这条没有处理。', 'Another upgrade is still running; this one was not started.') }
       }
 
-      start($, args, settings)
+      startCommand($, args, settings)
 
       return { text: say(zh, `正在优化：${fit(args, 60)}`, `Upgrading: ${fit(args, 60)}`) }
     } catch (error) {
@@ -360,7 +376,8 @@ export const register: Register = (on, options) => {
     }
   }).catch(() => ({ text: 'Prompt Upgrade hit a problem and did nothing. Nothing was sent.' }))
 
-  // Automatic mode: a plain prompt typed at an idle session goes through the questions first.
+  // Automatic mode: a plain prompt typed at an idle session gets the questions
+  // right where it was sent, and goes on as the upgrade: nothing is blocked.
   on('prompt.submit', async ($, e, next) => {
     let verdict: Verdict = { kind: 'pass' }
 
@@ -372,17 +389,48 @@ export const register: Register = (on, options) => {
       verdict = { kind: 'pass' }
     }
 
-    if (verdict.kind === 'intercept') {
-      start($, e.text, settings)
-
-      return {
-        drop: say(isChinese(e.text), 'Prompt Upgrade：先回答几个问题，优化后会自动发送。', 'Prompt Upgrade: a few questions first; the upgraded prompt is sent after.'),
-      }
-    }
-
     if (verdict.kind === 'strip') {
       return next({ ...e, text: verdict.text })
     }
+
+    if (verdict.kind !== 'intercept') {
+      return next(e)
+    }
+
+    const zh = isChinese(e.text)
+    let outcome: Outcome
+
+    isBusy = true
+
+    try {
+      outcome = await prepare($, e.text, settings)
+    } finally {
+      isBusy = false
+    }
+
+    if (outcome.kind === 'send') {
+      return next({ ...e, text: outcome.text })
+    }
+
+    if (outcome.kind === 'edit') {
+      $.clock.after(0, () => {
+        void putBack($, outcome.text)
+      })
+
+      return { drop: say(zh, 'Prompt Upgrade：优化版在输入框里，改完按回车发送。', 'Prompt Upgrade: the upgrade is in the prompt box; edit it and press Enter.') }
+    }
+
+    // Esc while it was rewriting: the engine has already put the prompt back.
+    if (next.signal.aborted) {
+      return next(e)
+    }
+
+    // You pressed Enter to send it: skipping the questions, or a failed rewrite, sends it as typed.
+    $.ui.log(
+      outcome.kind === 'cancel'
+        ? say(zh, 'Prompt Upgrade：跳过了优化，按原样发送。', 'Prompt Upgrade: skipped; sent as typed.')
+        : say(zh, `Prompt Upgrade：改写失败（${outcome.why}），按原样发送。`, `Prompt Upgrade: the rewrite failed (${outcome.why}); sent as typed.`),
+    )
 
     return next(e)
   }).catch(($, e, next) => next(e))

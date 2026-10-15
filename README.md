@@ -45,7 +45,7 @@ From a shell, use `claude plugin install <mod> --marketplace Caesarcph/claude-mo
 
 The desktop app has no `/plugin` command. Click **+** next to the prompt box, choose **Plugins**, then **Add marketplace** with `Caesarcph/claude-mods`, then **Add plugin**.
 
-To update later, run `/plugin marketplace update chenp-mods` and `/plugin update <mod>`, then restart Claude Code.
+To update later, run `/plugin marketplace update chenp-mods` and `/plugin update <mod>`, then restart Claude Code. From a shell, run `claude plugin marketplace update chenp-mods` and `claude plugin update <mod>@chenp-mods`. If prompt-upgrade still opens a side pane with a Run button, you are on the old 0.1 version: update it.
 
 ## prompt-upgrade
 
@@ -62,7 +62,9 @@ The questions take the last few messages of the conversation into account, so th
 | `maxQuestions` | `3` | At most 1–4 questions. Fewer, or none, when the prompt is already clear |
 | `review` | `send` | `review` adds one last dialog: send, edit first, or send your original |
 
-**Automatic mode** (`/better on`) leaves these prompts as typed:
+**Automatic mode** (`/better on`) works on the prompt as you send it. Nothing is blocked: the questions appear right after you press Enter, and what goes to Claude is the upgraded prompt. Press Esc on a question to skip the upgrade and send your prompt as typed. Press Esc while it is rewriting to cancel; the prompt goes back into the box.
+
+Automatic mode leaves these prompts as typed:
 - slash commands and `!` shell lines
 - short replies such as "yes" or "继续"
 - prompts with attachments or `@` mentions

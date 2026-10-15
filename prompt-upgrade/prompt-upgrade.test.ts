@@ -326,17 +326,17 @@ describe('automatic mode', () => {
     expect(seen.asked).toEqual([])
   })
 
-  test('on: a rough prompt is taken, upgraded and sent; replies and ">" pass', async ($, on) => {
+  test('on: a rough prompt is upgraded in place, never blocked; replies and ">" pass', async ($, on) => {
     const seen = world(on)
 
     await $.session.start(START)
     await better($, 'on')
 
+    // The prompt goes on as the upgrade itself: no drop, nothing submitted a second time.
     const taken = await $.prompt.submit(typed(ROUGH))
-    expect(typeof (taken as { drop?: string }).drop).toBe('string')
-
-    await seen.clock.settle()
-    expect(seen.submitted.map(one => one.text)).toContain(UPGRADED)
+    expect((taken as { drop?: string }).drop).toBe(undefined)
+    expect(taken.text).toBe(UPGRADED)
+    expect(seen.asked.length).toBe(2)
 
     const reply = await $.prompt.submit(typed('yes'))
     expect(reply.text).toBe('yes')
@@ -347,6 +347,28 @@ describe('automatic mode', () => {
     await better($, 'off')
     const after = await $.prompt.submit(typed(ROUGH))
     expect(after.text).toBe(ROUGH)
+  })
+
+  test('on: Esc on the questions sends the prompt as typed', async ($, on) => {
+    const seen = world(on, { answers: 'dismiss' })
+
+    await $.session.start(START)
+    await better($, 'on')
+
+    const sent = await $.prompt.submit(typed(ROUGH))
+    expect(sent.text).toBe(ROUGH)
+    expect(seen.logs.join('\n')).toContain('sent as typed')
+  })
+
+  test('on: a failed rewrite sends the prompt as typed', async ($, on) => {
+    const seen = world(on, { failRewrite: true })
+
+    await $.session.start(START)
+    await better($, 'on')
+
+    const sent = await $.prompt.submit(typed(ROUGH_ZH))
+    expect(sent.text).toBe(ROUGH_ZH)
+    expect(seen.logs.join('\n')).toContain('按原样发送')
   })
 
   test('bare /better shows how to use it', async ($, on) => {
