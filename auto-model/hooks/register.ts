@@ -2,20 +2,24 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import type { Effort, Plan, Tier } from '../types'
+import type { TaskMessage } from './logic'
 import {
   EFFORTS,
   JUDGE_SYSTEM,
   TIERS,
   asEffort,
   asModel,
+  conversationFor,
+  harder,
+  isFollowUp,
   isShortReply,
-  judgeByRules,
+  judgeInContext,
   judgePrompt,
+  sizeOf,
   parseJudge,
   resolveModel,
   isLasting,
   shortReason,
-  sizeOf,
 } from './logic'
 
 type Dollar = EngineInterface
@@ -86,24 +90,35 @@ const describeChoice = (options: PluginOptions, overrides: Overrides, tier: Tier
 
 const isEnabled = async ($: Dollar): Promise<boolean> => (await $.store.get('enabled')) !== false
 
-/** Decides how hard the prompt is: a short reply keeps the last tier, else the judge. */
-const decide = async ($: Dollar, text: string, judgeModel: string, options: PluginOptions, previous: Plan | null) => {
-  if (previous !== null && previous.isActive && isShortReply(text)) {
-    return {
-      tier: previous.tier,
-      score: previous.score,
-      reason: 'short reply, keeping the last tier',
-      judge: 'heuristic' as const,
-    }
+/** The conversation so far, for judging a prompt in context; empty when it cannot be read. */
+const readMessages = async ($: Dollar): Promise<TaskMessage[]> => {
+  try {
+    return await $.session.messages()
+  } catch {
+    return []
   }
+}
 
-  // A prompt of a few words gains nothing from a model call: the rules answer at once.
-  if (options['judge'] === 'model' && sizeOf(text) >= 4) {
+/**
+ * Decides how hard the work is. The rules judge the prompt with its task in
+ * view: a follow-up ("continue", "fix it") is at least as hard as the request
+ * it continues. The model judge, when on, reads the conversation too.
+ */
+const decide = async ($: Dollar, text: string, judgeModel: string, options: PluginOptions, previous: Plan | null) => {
+  const messages = await readMessages($)
+  const previousTier = previous !== null && previous.isActive ? previous.tier : null
+  const byRules = judgeInContext(text, messages, previousTier)
+
+  // No model call where it adds nothing: a bare reply its task already decided,
+  // or a prompt of a few words that stands on its own.
+  const isTrivial = (isShortReply(text) && byRules.isContinued) || (!isFollowUp(text) && sizeOf(text) < 4)
+
+  if (options['judge'] === 'model' && !isTrivial) {
     try {
       const res = await $.model.complete({
         model: judgeModel,
         system: JUDGE_SYSTEM,
-        prompt: judgePrompt(text),
+        prompt: judgePrompt(text, conversationFor(messages, text)),
         maxTokens: 80,
         effort: 'low',
         timeoutMs: 5000,
@@ -111,27 +126,28 @@ const decide = async ($: Dollar, text: string, judgeModel: string, options: Plug
       const verdict = res.isAnswered ? parseJudge(res.text) : null
 
       if (verdict !== null) {
+        // A follow-up never drops below the task it continues.
+        const tier = isFollowUp(text) ? harder(verdict.tier, byRules.tier) : verdict.tier
+
         return {
-          tier: verdict.tier,
-          score: TIERS.indexOf(verdict.tier),
+          tier,
+          score: TIERS.indexOf(tier),
           reason: verdict.why === '' ? 'judged by the model' : verdict.why,
           judge: 'model' as const,
         }
       }
     } catch {
-      // The rules below answer instead.
+      // The rules answer instead.
     }
   }
 
-  const byRules = judgeByRules(text)
-
-  return { ...byRules, judge: 'heuristic' as const }
+  return { tier: byRules.tier, score: byRules.score, reason: byRules.reason, judge: 'heuristic' as const }
 }
 
 const statusLine = (plan: Plan): string =>
   plan.isFallback
     ? `auto-model: ${plan.model} failed (${plan.failure === '' ? 'no response' : plan.failure}); this turn uses the session's model`
-    : `auto-model: ${plan.tier} → ${plan.model} · ${plan.effort}`
+    : `auto-model: ${plan.tier} (${shortReason(plan.reason, 60)}) → ${plan.model} · ${plan.effort}`
 
 const statusText = async ($: Dollar, options: PluginOptions): Promise<string> => {
   const on = await isEnabled($)

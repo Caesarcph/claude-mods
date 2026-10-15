@@ -1,6 +1,6 @@
 {
   "name": "prompt-upgrade",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Turns a rough prompt into a clear one right in the chat: a few multiple-choice questions, like plan mode, then the upgraded prompt is sent for you.",
   "author": {
     "name": "chenp"
@@ -38,6 +38,16 @@
       "options": [
         "send",
         "review"
+      ]
+    },
+    "memory": {
+      "type": "string",
+      "title": "How much of the conversation the upgrade sees",
+      "description": "recent: the first request and the latest messages (up to about 12,000 characters) go to the question and rewrite models; cheap. full: the questions and the rewrite are asked of the main conversation itself, with all of it in view, on the session's model from the prompt cache; best memory, costs more.",
+      "default": "recent",
+      "options": [
+        "recent",
+        "full"
       ]
     }
   },

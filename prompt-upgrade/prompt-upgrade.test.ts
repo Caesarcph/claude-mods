@@ -57,6 +57,7 @@ function world(on: any, options: WorldOptions = {}) {
     asked: [] as any[],
     systems: [] as string[],
     questionPrompts: [] as string[],
+    forks: [] as string[],
     rewritePrompts: [] as string[],
     clock,
   }
@@ -66,7 +67,20 @@ function world(on: any, options: WorldOptions = {}) {
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'better' } }))
   on('settings.read', () => ({ value: {} }))
-  on('session.messages', () => ({ value: options.messages ?? [] }))
+  on('session.messages', () => ({ value: (options.messages ?? []).map(m => ({ toolUses: [], ...m })) }))
+  on('model.fork', (_: unknown, e: { prompt: string }) => {
+    seen.forks.push(e.prompt)
+
+    const isQuestions = e.prompt.includes('multiple-choice')
+
+    return {
+      value: {
+        isAnswered: true,
+        text: isQuestions ? (options.questions ?? QUESTIONS_JSON) : (options.rewrite ?? REWRITE_JSON),
+        usage: USAGE,
+      },
+    }
+  })
   on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
   on('prompt.fill', (_: unknown, e: { text: string }) => {
     seen.filled.push(e.text)
@@ -179,15 +193,19 @@ describe('reading the model', () => {
     expect(list[0]?.id).toBe('24')
   })
 
-  test('the conversation context is the last few messages, trimmed', () => {
+  test('the context keeps the first request, the latest messages, tool calls, and the end of long replies', () => {
     const context = contextFrom([
-      { role: 'user', text: 'first' },
-      { role: 'assistant', text: '' },
-      { role: 'assistant', text: 'x'.repeat(2000) },
+      { role: 'user', text: 'Compare Mixtral, Qwen2.5-72B and Qwen3-32B on the server' },
+      { role: 'assistant', text: 'start ' + 'x'.repeat(5000) + ' THE CONCLUSION', toolUses: [{ tool: 'Bash', input: { command: 'nvidia-smi' } }] },
+      { role: 'user', text: '' },
+      { role: 'assistant', text: 'Download is at 40%.' },
     ])
 
-    expect(context.startsWith('User: first\nAssistant: ')).toBe(true)
-    expect(context.length).toBeLessThan(700)
+    expect(context).toContain('User: Compare Mixtral, Qwen2.5-72B and Qwen3-32B on the server')
+    expect(context).toContain('THE CONCLUSION')
+    expect(context).toContain('[Bash: nvidia-smi]')
+    expect(context.endsWith('Assistant: Download is at 40%.')).toBe(true)
+    expect(context.length).toBeLessThan(4000)
   })
 })
 
@@ -243,6 +261,20 @@ describe('upgrading in the chat', () => {
     await seen.clock.settle()
 
     expect(seen.questionPrompts[0]).toContain('we use Next.js 15')
+  })
+
+  test('with memory full, the questions and the rewrite are asked of the conversation itself', { options: { memory: 'full' } }, async ($, on) => {
+    const seen = world(on)
+
+    await $.session.start(START)
+    await better($, ROUGH)
+    await seen.clock.settle()
+
+    expect(seen.forks.length).toBe(2)
+    expect(seen.forks[0]).toContain('not from the user')
+    expect(seen.forks[0]).toContain(ROUGH)
+    expect(seen.systems).toEqual([])
+    expect(seen.submitted.map(one => one.text)).toEqual([UPGRADED])
   })
 
   test('a clear prompt gets no questions and is sent straight after the rewrite', async ($, on) => {
@@ -326,17 +358,17 @@ describe('automatic mode', () => {
     expect(seen.asked).toEqual([])
   })
 
-  test('on: a rough prompt is taken, upgraded and sent; replies and ">" pass', async ($, on) => {
+  test('on: a rough prompt is upgraded in place, never blocked; replies and ">" pass', async ($, on) => {
     const seen = world(on)
 
     await $.session.start(START)
     await better($, 'on')
 
+    // The prompt goes on as the upgrade itself: no drop, nothing submitted a second time.
     const taken = await $.prompt.submit(typed(ROUGH))
-    expect(typeof (taken as { drop?: string }).drop).toBe('string')
-
-    await seen.clock.settle()
-    expect(seen.submitted.map(one => one.text)).toContain(UPGRADED)
+    expect((taken as { drop?: string }).drop).toBe(undefined)
+    expect(taken.text).toBe(UPGRADED)
+    expect(seen.asked.length).toBe(2)
 
     const reply = await $.prompt.submit(typed('yes'))
     expect(reply.text).toBe('yes')
@@ -347,6 +379,28 @@ describe('automatic mode', () => {
     await better($, 'off')
     const after = await $.prompt.submit(typed(ROUGH))
     expect(after.text).toBe(ROUGH)
+  })
+
+  test('on: Esc on the questions sends the prompt as typed', async ($, on) => {
+    const seen = world(on, { answers: 'dismiss' })
+
+    await $.session.start(START)
+    await better($, 'on')
+
+    const sent = await $.prompt.submit(typed(ROUGH))
+    expect(sent.text).toBe(ROUGH)
+    expect(seen.logs.join('\n')).toContain('sent as typed')
+  })
+
+  test('on: a failed rewrite sends the prompt as typed', async ($, on) => {
+    const seen = world(on, { failRewrite: true })
+
+    await $.session.start(START)
+    await better($, 'on')
+
+    const sent = await $.prompt.submit(typed(ROUGH_ZH))
+    expect(sent.text).toBe(ROUGH_ZH)
+    expect(seen.logs.join('\n')).toContain('按原样发送')
   })
 
   test('bare /better shows how to use it', async ($, on) => {
