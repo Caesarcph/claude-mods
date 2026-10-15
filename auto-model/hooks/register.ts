@@ -28,10 +28,10 @@ const unavailableAtom = atom({ plugin: 'auto-model', key: 'unavailable' } as con
 let lastError = ''
 
 const DEFAULTS: Record<Tier, { model: string; effort: Effort }> = {
-  easy: { model: 'sonnet', effort: 'low' },
-  medium: { model: 'sonnet', effort: 'medium' },
+  easy: { model: 'sonnet', effort: 'high' },
+  medium: { model: 'sonnet', effort: 'high' },
   hard: { model: 'opus', effort: 'high' },
-  expert: { model: 'opus', effort: 'xhigh' },
+  expert: { model: 'fable', effort: 'high' },
 }
 
 /** Choices made with `/auto-model set`, kept across sessions; they win over the options. */

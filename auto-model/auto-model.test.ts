@@ -164,9 +164,9 @@ describe('switching the model and effort', () => {
     await step($, 't-expert')
 
     expect(seen.steps.map(one => [one.model, one.effort])).toEqual([
-      ['claude-sonnet-5-5', 'low'],
+      ['claude-sonnet-5-5', 'high'],
       ['claude-opus-5-5', 'high'],
-      ['claude-opus-5-5', 'xhigh'],
+      ['claude-fable-5-1', 'high'],
     ])
   })
 
@@ -259,8 +259,8 @@ describe('options', () => {
     await step($, 't1')
 
     expect(seen.judged).toBe(1)
-    expect(seen.steps[0]?.model).toBe('claude-opus-5-5')
-    expect(seen.steps[0]?.effort).toBe('xhigh')
+    expect(seen.steps[0]?.model).toBe('claude-fable-5-1')
+    expect(seen.steps[0]?.effort).toBe('high')
   })
 
   test('with the model judge on, try uses it too, and a tiny prompt skips it', { options: { judge: 'model' } }, async ($, on) => {
@@ -342,7 +342,7 @@ describe('changing a tier from the command line', () => {
     expect(back.text).toContain('easy')
     await startTurn($, 't2', EASY)
     await step($, 't2')
-    expect(seen.steps[1]).toEqual({ model: 'claude-sonnet-5-5', effort: 'low', agentId: undefined })
+    expect(seen.steps[1]).toEqual({ model: 'claude-sonnet-5-5', effort: 'high', agentId: undefined })
   })
 
   test('bad input is explained and changes nothing', async ($, on) => {

@@ -2,7 +2,9 @@
   "name": "prompt-upgrade",
   "version": "0.2.0",
   "description": "Turns a rough prompt into a clear one right in the chat: a few multiple-choice questions, like plan mode, then the upgraded prompt is sent for you.",
-  "author": { "name": "chenp" },
+  "author": {
+    "name": "chenp"
+  },
   "userConfig": {
     "questionModel": {
       "type": "string",
@@ -21,14 +23,23 @@
       "title": "Most questions asked",
       "description": "At most this many questions in the dialog (fewer, or none, when the prompt is already clear).",
       "default": "3",
-      "options": ["1", "2", "3", "4"]
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
     },
     "review": {
       "type": "string",
       "title": "Review before sending",
       "description": "send: the upgraded prompt is sent at once. review: one last dialog shows it, to send, edit or send your original instead.",
       "default": "send",
-      "options": ["send", "review"]
+      "options": [
+        "send",
+        "review"
+      ]
     }
-  }
+  },
+  "license": "MIT"
 }

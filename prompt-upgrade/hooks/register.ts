@@ -213,6 +213,7 @@ const upgrade = async ($: Dollar, original: string, settings: Settings) => {
       system: REWRITE_SYSTEM,
       prompt: rewritePrompt(original, answers, context),
       maxTokens: 3000,
+      effort: 'high',
       timeoutMs: 90000,
     })
     const out = written.isAnswered ? parseRewrite(written.text) : null
