@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 
-import { isShortReply, judgeByRules, parseJudge, resolveModel, sizeOf } from './hooks/logic'
+import { isFollowUp, isShortReply, judgeByRules, judgeInContext, parseJudge, resolveModel, sizeOf, taskRequest } from './hooks/logic'
 
 const SESSION_MODEL = 'claude-sonnet-5-5'
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
@@ -23,14 +23,20 @@ const EXPERT = [
 ].join('\n')
 
 /** The world beneath the mod: the session's own engine, answered from memory. */
-function world(on: any, options: { judgeReply?: string; emptyForOtherModels?: boolean; failWith?: string; engine?: any } = {}) {
+function world(
+  on: any,
+  options: { judgeReply?: string; emptyForOtherModels?: boolean; failWith?: string; engine?: any; messages?: { role: 'user' | 'assistant'; text: string }[] } = {},
+) {
   mock.store(on)
 
   const seen = {
     steps: [] as { model: string; effort: unknown; agentId?: string }[],
     statuses: [] as (string | undefined)[],
     judged: 0,
+    judgePrompts: [] as string[],
   }
+
+  on('session.messages', () => ({ value: (options.messages ?? []).map(m => ({ toolUses: [], ...m })) }))
 
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'auto-model' } }))
@@ -41,8 +47,9 @@ function world(on: any, options: { judgeReply?: string; emptyForOtherModels?: bo
 
     return { value: undefined }
   })
-  on('model.complete', () => {
+  on('model.complete', (_: unknown, e: { prompt: string }) => {
     seen.judged += 1
+    seen.judgePrompts.push(e.prompt)
 
     return {
       value: options.judgeReply === undefined
@@ -434,5 +441,51 @@ describe('when the chosen model fails', () => {
     await step($, 't2')
 
     expect(seen.steps.map(one => one.model)).toEqual(['claude-haiku-5-5', SESSION_MODEL, 'claude-haiku-5-5', SESSION_MODEL])
+  })
+})
+
+describe('judging the work, not the wording', () => {
+  const DEBUGGING = [
+    { role: 'user' as const, text: 'Find the root cause of the race condition in the session cache that makes the auth tests fail intermittently across the services' },
+    { role: 'assistant' as const, text: 'I found two writers to the cache without a lock. Shall I fix both?' },
+  ]
+
+  test('a follow-up is at least as hard as the request it continues', () => {
+    expect(isFollowUp('继续')).toBe(true)
+    expect(isFollowUp('fix it')).toBe(true)
+    expect(isFollowUp('修一下这个')).toBe(true)
+    expect(isFollowUp('what does ls do?')).toBe(false)
+    expect(taskRequest([...DEBUGGING, { role: 'user', text: '继续' }], '继续')).toBe(DEBUGGING[0]!.text)
+
+    const continued = judgeInContext('继续', DEBUGGING, null)
+    expect(continued.tier).not.toBe('easy')
+    expect(continued.reason).toContain('continues')
+    expect(judgeInContext('修一下这个', DEBUGGING, null).tier).toBe(continued.tier)
+
+    // A short question of its own is judged by itself.
+    expect(judgeInContext('what does ls do?', DEBUGGING, 'expert').tier).toBe('easy')
+  })
+
+  test('"continue" as the first prompt of a resumed session follows the task, not haiku', async ($, on) => {
+    const seen = world(on, { messages: [...DEBUGGING, { role: 'user', text: '继续' }] })
+
+    await $.session.start(START)
+    await startTurn($, 't1', '继续')
+    await step($, 't1')
+
+    expect(seen.steps[0]?.model).not.toBe('claude-haiku-5-5')
+    expect(seen.statuses.at(-1)).toContain('auto-model: hard')
+  })
+
+  test('the model judge reads the conversation, and a follow-up never drops below its task', { options: { judge: 'model' } }, async ($, on) => {
+    const seen = world(on, { judgeReply: '{"tier":"easy","why":"short instruction"}', messages: DEBUGGING })
+
+    await $.session.start(START)
+    await startTurn($, 't1', 'ok fix both of them now please')
+    await step($, 't1')
+
+    expect(seen.judgePrompts[0]).toContain('<conversation>')
+    expect(seen.judgePrompts[0]).toContain('race condition')
+    expect(seen.steps[0]?.model).not.toBe('claude-haiku-5-5')
   })
 })

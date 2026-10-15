@@ -86,7 +86,11 @@ Start a prompt with `>` to send it exactly as typed.
 - **Change a tier:** run `/auto-model set <tier> <model> [effort]`, for example `/auto-model set easy sonnet low`. You can also change the `modelEasy`, `effortEasy`, … `modelExpert`, `effortExpert` options in `/config`.
 - **See where a prompt lands:** `/auto-model try <prompt>` shows the tier without sending anything.
 - **Who judges difficulty:** by default, local rules (keywords, size, code blocks, stack traces, in English and Chinese). Set `judge` to `model` to have a quick model call grade each prompt instead. It uses `judgeModel`, `haiku` by default.
-- **Short replies** such as "continue" or "好的" keep the previous turn's tier.
+- **The work counts, not the wording.** A follow-up is judged together with the task it continues. A follow-up is a reply such as "continue" or "好的", or a short instruction that points back, such as "fix it", "do the same for the rest" or "修一下这个".
+  - It gets at least the tier of the last real request in the conversation, and of the turn before it. So "继续" in the middle of a debugging session stays on Opus, even as the first prompt after a resume.
+  - A short prompt that stands on its own, such as "what does ls do?", is judged by itself.
+  - The status line says why: `auto-model: hard (continues: debugging) → claude-opus-5-5 · high`.
+  - With `judge: model`, the judge reads the conversation too: the first request, the latest messages and the tool calls.
 - **When a model fails:** the turn carries on with the session's model, and the status line shows the API's reason. Some failures won't clear up during the session: a model your account is not served, or one whose usage limit is spent. Such a model is skipped for the rest of the session.
 
 ## Extra model calls and cost
