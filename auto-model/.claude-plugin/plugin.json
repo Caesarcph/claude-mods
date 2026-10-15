@@ -1,7 +1,7 @@
 {
   "name": "auto-model",
-  "version": "0.2.0",
-  "description": "Picks the model for each turn from how hard your prompt looks: easy prompts go to a fast model, the hardest to the strongest one. Thinking effort is high on every tier by default.",
+  "version": "0.3.0",
+  "description": "Picks the model for each turn from how hard your prompt looks: haiku, sonnet, opus or fable, with high thinking effort on every tier by default.",
   "author": {
     "name": "chenp"
   },
@@ -23,13 +23,13 @@
       "description": "Model alias or full id that grades prompts when the judge is model. A fast model is enough.",
       "default": "haiku"
     },
-    "easyModel": {
+    "modelEasy": {
       "type": "string",
       "title": "Easy prompts: model",
-      "description": "Model alias (haiku, sonnet, opus) or a full model id, for easy prompts.",
-      "default": "sonnet"
+      "description": "Model alias (haiku, sonnet, opus, fable) or a full model id, for easy prompts.",
+      "default": "haiku"
     },
-    "easyEffort": {
+    "effortEasy": {
       "type": "string",
       "title": "Easy prompts: thinking effort",
       "description": "Thinking effort for easy prompts.",
@@ -42,13 +42,13 @@
         "max"
       ]
     },
-    "mediumModel": {
+    "modelMedium": {
       "type": "string",
       "title": "Medium prompts: model",
-      "description": "Model alias or full id for medium prompts.",
+      "description": "Model alias (haiku, sonnet, opus, fable) or a full model id, for medium prompts.",
       "default": "sonnet"
     },
-    "mediumEffort": {
+    "effortMedium": {
       "type": "string",
       "title": "Medium prompts: thinking effort",
       "description": "Thinking effort for medium prompts.",
@@ -61,13 +61,13 @@
         "max"
       ]
     },
-    "hardModel": {
+    "modelHard": {
       "type": "string",
       "title": "Hard prompts: model",
-      "description": "Model alias or full id for hard prompts.",
+      "description": "Model alias (haiku, sonnet, opus, fable) or a full model id, for hard prompts.",
       "default": "opus"
     },
-    "hardEffort": {
+    "effortHard": {
       "type": "string",
       "title": "Hard prompts: thinking effort",
       "description": "Thinking effort for hard prompts.",
@@ -80,13 +80,13 @@
         "max"
       ]
     },
-    "expertModel": {
+    "modelExpert": {
       "type": "string",
       "title": "Expert prompts: model",
-      "description": "Model alias or full id for the very hardest prompts.",
+      "description": "Model alias (haiku, sonnet, opus, fable) or a full model id, for the very hardest prompts.",
       "default": "fable"
     },
-    "expertEffort": {
+    "effortExpert": {
       "type": "string",
       "title": "Expert prompts: thinking effort",
       "description": "Thinking effort for the very hardest prompts.",

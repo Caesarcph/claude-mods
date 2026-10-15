@@ -164,7 +164,7 @@ describe('switching the model and effort', () => {
     await step($, 't-expert')
 
     expect(seen.steps.map(one => [one.model, one.effort])).toEqual([
-      ['claude-sonnet-5-5', 'high'],
+      ['claude-haiku-5-5', 'high'],
       ['claude-opus-5-5', 'high'],
       ['claude-fable-5-1', 'high'],
     ])
@@ -240,7 +240,7 @@ describe('switching the model and effort', () => {
 })
 
 describe('options', () => {
-  test('hardModel and hardEffort are read from the options', { options: { hardModel: 'big-model', hardEffort: 'max' } }, async ($, on) => {
+  test('modelHard and effortHard are read from the options', { options: { modelHard: 'big-model', effortHard: 'max' } }, async ($, on) => {
     const seen = world(on)
 
     await $.session.start(START)
@@ -288,7 +288,7 @@ describe('options', () => {
     await step($, 't1')
 
     expect(seen.judged).toBe(1)
-    expect(seen.steps[0]?.model).toBe('claude-sonnet-5-5')
+    expect(seen.steps[0]?.model).toBe('claude-haiku-5-5')
   })
 })
 
@@ -308,7 +308,7 @@ describe('the command', () => {
 
     const tried = await command($, `try ${EASY}`)
     expect(tried.text).toContain('easy')
-    expect(tried.text).toContain('sonnet')
+    expect(tried.text).toContain('haiku · high')
     expect(seen.steps).toEqual([])
   })
 })
@@ -336,13 +336,13 @@ describe('changing a tier from the command line', () => {
     await command($, 'set easy medium')
     await startTurn($, 't1', EASY)
     await step($, 't1')
-    expect(seen.steps[0]).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium', agentId: undefined })
+    expect(seen.steps[0]).toEqual({ model: 'claude-haiku-5-5', effort: 'medium', agentId: undefined })
 
     const back = await command($, 'reset easy')
     expect(back.text).toContain('easy')
     await startTurn($, 't2', EASY)
     await step($, 't2')
-    expect(seen.steps[1]).toEqual({ model: 'claude-sonnet-5-5', effort: 'high', agentId: undefined })
+    expect(seen.steps[1]).toEqual({ model: 'claude-haiku-5-5', effort: 'high', agentId: undefined })
   })
 
   test('bad input is explained and changes nothing', async ($, on) => {
