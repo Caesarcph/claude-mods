@@ -1,0 +1,19 @@
+{
+  "name": "chenp-mods",
+  "owner": {
+    "name": "chenp"
+  },
+  "description": "Two Claude Code mods: a prompt upgrader and an automatic model picker.",
+  "plugins": [
+    {
+      "name": "prompt-upgrade",
+      "source": "./prompt-upgrade",
+      "description": "Turns a rough prompt into a great one in a pane: up to three quick questions, a rewrite, and a side-by-side review before anything runs."
+    },
+    {
+      "name": "auto-model",
+      "source": "./auto-model",
+      "description": "Picks the model and thinking effort for each turn from how hard your prompt looks."
+    }
+  ]
+}
