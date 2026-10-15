@@ -23,7 +23,7 @@ const EXPERT = [
 ].join('\n')
 
 /** The world beneath the mod: the session's own engine, answered from memory. */
-function world(on: any, options: { judgeReply?: string; emptyForOtherModels?: boolean } = {}) {
+function world(on: any, options: { judgeReply?: string; emptyForOtherModels?: boolean; failWith?: string; engine?: any } = {}) {
   mock.store(on)
 
   const seen = {
@@ -55,6 +55,16 @@ function world(on: any, options: { judgeReply?: string; emptyForOtherModels?: bo
 
     // A model the provider does not serve: nothing answers, no usage, no stop reason.
     if (options.emptyForOtherModels && e.model !== SESSION_MODEL) {
+      if (options.failWith !== undefined) {
+        // The engine records the API's error as an assistant row with no role.
+        await options.engine.session.append({
+          message: { type: 'assistant', content: [{ type: 'text', text: options.failWith }] },
+          door: 'response',
+          origin: { kind: 'engine' },
+          uuid: `err-${e.index}`,
+        })
+      }
+
       return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null, usage: null }
     }
 
@@ -126,6 +136,10 @@ describe('judging difficulty by rules', () => {
     expect(isShortReply('continue')).toBe(true)
     expect(isShortReply('ok do it')).toBe(true)
     expect(isShortReply('继续')).toBe(true)
+    expect(isShortReply('好的，继续做吧')).toBe(true)
+    expect(isShortReply('可以，开始吧')).toBe(true)
+    expect(isShortReply('okay')).toBe(true)
+    expect(isShortReply('nothing works anymore')).toBe(false)
     expect(isShortReply('refactor the whole auth module')).toBe(false)
     expect(sizeOf('一二三四五六七八九十')).toBeGreaterThan(4)
   })
@@ -150,9 +164,9 @@ describe('switching the model and effort', () => {
     await step($, 't-expert')
 
     expect(seen.steps.map(one => [one.model, one.effort])).toEqual([
-      ['claude-sonnet-5-5', 'low'],
+      ['claude-sonnet-5-5', 'high'],
       ['claude-opus-5-5', 'high'],
-      ['claude-opus-5-5', 'xhigh'],
+      ['claude-fable-5-1', 'high'],
     ])
   })
 
@@ -177,6 +191,22 @@ describe('switching the model and effort', () => {
     await step($, 't2')
 
     expect(seen.steps.map(one => one.model)).toEqual(['claude-opus-5-5', 'claude-opus-5-5'])
+  })
+
+  test('a subagent starting mid-turn leaves the main turn\'s plan alone', async ($, on) => {
+    const seen = world(on)
+
+    await $.session.start(START)
+    await startTurn($, 't1', HARD)
+    await $.turn.start({ turnId: 'sub-1', text: 'just list the files', agentId: 'agent-1' })
+    await step($, 't1', { index: 1 })
+
+    expect(seen.steps[0]?.model).toBe('claude-opus-5-5')
+  })
+
+  test('a "list" inside a real task is not a small task', () => {
+    expect(judgeByRules('implement a linked list with insert and delete').tier).not.toBe('easy')
+    expect(judgeByRules('list the files in src').tier).toBe('easy')
   })
 
   test('subagent steps are left as they are', async ($, on) => {
@@ -229,8 +259,25 @@ describe('options', () => {
     await step($, 't1')
 
     expect(seen.judged).toBe(1)
-    expect(seen.steps[0]?.model).toBe('claude-opus-5-5')
-    expect(seen.steps[0]?.effort).toBe('xhigh')
+    expect(seen.steps[0]?.model).toBe('claude-fable-5-1')
+    expect(seen.steps[0]?.effort).toBe('high')
+  })
+
+  test('with the model judge on, try uses it too, and a tiny prompt skips it', { options: { judge: 'model' } }, async ($, on) => {
+    const seen = world(on, { judgeReply: '{"tier":"hard","why":"needs investigation"}' })
+
+    await $.session.start(START)
+
+    const tried = await command($, `try ${EASY}`)
+    expect(tried.text).toContain('hard (model judge: needs investigation)')
+    expect(seen.judged).toBe(1)
+
+    await startTurn($, 't1', 'fix typo')
+    await step($, 't1')
+    expect(seen.judged).toBe(1)
+
+    const odd = await command($, 'tryhard')
+    expect(odd.text).toContain('auto-model is on')
   })
 
   test('with the model judge on and failing, the rules answer', { options: { judge: 'model' } }, async ($, on) => {
@@ -295,7 +342,7 @@ describe('changing a tier from the command line', () => {
     expect(back.text).toContain('easy')
     await startTurn($, 't2', EASY)
     await step($, 't2')
-    expect(seen.steps[1]).toEqual({ model: 'claude-sonnet-5-5', effort: 'low', agentId: undefined })
+    expect(seen.steps[1]).toEqual({ model: 'claude-sonnet-5-5', effort: 'high', agentId: undefined })
   })
 
   test('bad input is explained and changes nothing', async ($, on) => {
@@ -348,5 +395,44 @@ describe('sending a model id the API takes', () => {
     expect(seen.steps.map(one => one.model)).toEqual(['claude-haiku-5-5', SESSION_MODEL, SESSION_MODEL])
     const status = await command($, '')
     expect(status.text).toContain('fell back')
+  })
+})
+
+describe('when the chosen model fails', () => {
+  test('the API\'s reason is shown, and a model it will not serve is skipped for the session', async ($, on) => {
+    const seen = world(on, {
+      emptyForOtherModels: true,
+      failWith: "There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it.",
+      engine: $,
+    })
+
+    await $.session.start(START)
+    await command($, 'set easy haiku')
+    await startTurn($, 't1', EASY)
+    await step($, 't1')
+
+    expect(seen.statuses.at(-1)).toContain('claude-haiku-5-5 failed (There\'s an issue with the selected model')
+
+    await startTurn($, 't2', EASY)
+    await step($, 't2')
+
+    // Tried once, then the session's own model from the next turn on.
+    expect(seen.steps.map(one => one.model)).toEqual(['claude-haiku-5-5', SESSION_MODEL, SESSION_MODEL])
+
+    const status = await command($, '')
+    expect(status.text).toContain('Skipped this session: claude-haiku-5-5')
+  })
+
+  test('a failure that can pass is retried on the next turn', async ($, on) => {
+    const seen = world(on, { emptyForOtherModels: true, failWith: 'API Error: Repeated 529 Overloaded errors', engine: $ })
+
+    await $.session.start(START)
+    await command($, 'set easy haiku')
+    await startTurn($, 't1', EASY)
+    await step($, 't1')
+    await startTurn($, 't2', EASY)
+    await step($, 't2')
+
+    expect(seen.steps.map(one => one.model)).toEqual(['claude-haiku-5-5', SESSION_MODEL, 'claude-haiku-5-5', SESSION_MODEL])
   })
 })

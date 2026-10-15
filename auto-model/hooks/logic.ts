@@ -55,18 +55,21 @@ const QUICK: Rule = {
 }
 
 const EASY_TASK: Rule = {
-  test: /\b(typo|spelling|rename|reformat|format|lint|comment|docstring|translate|summari[sz]e|commit message|what is|what does|what's|where is|how do i|show me|list)\b|(错别字|重命名|格式化|注释|翻译|总结|是什么|什么意思|在哪|提交信息|怎么用)/i,
+  test: /\b(typo|spelling|rename|reformat|format|lint|comment|docstring|translate|summari[sz]e|commit message|what is|what does|what's|where is|how do i|show me|list (?:the|all|my|every))\b|(错别字|重命名|格式化|注释|翻译|总结|是什么|什么意思|在哪|提交信息|怎么用)/i,
   points: -2,
   label: 'small task',
 }
 
-const REPLY_START =
-  /^(y|n|yes|no|yep|yeah|ok|okay|sure|thanks|thank you|continue|go on|go ahead|keep going|proceed|do it|please do|sounds good|looks good|lgtm|done|next|retry|again|好的?|可以|继续|嗯|行|是的|对|不用|谢谢|开始|执行|去做吧?)(\b|$)/i
+// JavaScript's \b only knows ASCII letters, so Chinese replies get a pattern of their own.
+const REPLY_EN =
+  /^(y|n|yes|no|yep|yeah|ok|okay|sure|thanks|thank you|continue|go on|go ahead|keep going|proceed|do it|please do|sounds good|looks good|lgtm|done|next|retry|again)\b/i
+const REPLY_ZH = /^(好的?|好吧|可以|继续|嗯+|行|是的?|对的?|不用|谢谢|开始|执行|去做吧?|没问题|就这样)/
 
 /** Rough size of a prompt: words, with each pair of CJK characters counted as about one. */
 export function sizeOf(text: string): number {
   const cjk = (text.match(/[㐀-鿿぀-ヿ가-힯]/g) ?? []).length
-  const rest = text.replace(/[㐀-鿿぀-ヿ가-힯]/g, ' ').trim()
+  // Punctuation on its own ("，", "!") is no word.
+  const rest = text.replace(/[㐀-鿿぀-ヿ가-힯]/g, ' ').replace(/(^|\s)[\p{P}\p{S}]+(?=\s|$)/gu, ' ').trim()
   const words = rest === '' ? 0 : rest.split(/\s+/).length
 
   return Math.round(words + cjk * 0.6)
@@ -80,7 +83,7 @@ export function isShortReply(text: string): boolean {
     return true
   }
 
-  return sizeOf(trimmed) <= 4 && REPLY_START.test(trimmed)
+  return sizeOf(trimmed) <= 4 && (REPLY_EN.test(trimmed) || REPLY_ZH.test(trimmed))
 }
 
 export function tierOfScore(score: number): Tier {
@@ -232,4 +235,18 @@ export function resolveModel(value: string, sessionModel: string): string {
 
 export function asModel(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback
+}
+
+// --- When the chosen model fails ----------------------------------------------
+
+/** A failure that will not pass within the session: the model is not served to this account, or its limit is spent. */
+export function isLasting(reason: string): boolean {
+  return /not exist|not have access|no access|not[ _]found|unrecognized|invalid model|usage limit|weekly limit|hit your .*limit|limit (?:reached|exceeded)|out of .*usage|quota/i.test(reason)
+}
+
+/** One line of the API's error text. */
+export function shortReason(text: string, width = 100): string {
+  const line = text.replace(/\s+/g, ' ').trim()
+
+  return line.length <= width ? line : line.slice(0, width - 1) + '…'
 }

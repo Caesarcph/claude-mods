@@ -18,12 +18,16 @@ export type Plan = {
   score: number
   /** Set once a step had to be sent as the session's own model instead. */
   isFallback: boolean
+  /** Why the chosen model was not used: the API's own words, '' when it was. */
+  failure: string
 }
 
 declare module 'claude-code' {
   interface PluginState {
     'auto-model': {
       plan: Plan | null
+      /** Models that failed this session in a way that will not pass (not found, no access, a usage limit), with why. */
+      unavailable: Record<string, string>
     }
   }
 }
