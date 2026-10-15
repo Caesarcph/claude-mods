@@ -8,7 +8,7 @@
     {
       "name": "prompt-upgrade",
       "source": "./prompt-upgrade",
-      "description": "Turns a rough prompt into a great one in a pane: up to three quick questions, a rewrite, and a side-by-side review before anything runs."
+      "description": "Turns a rough prompt into a clear one right in the chat: a few multiple-choice questions, like plan mode, then the upgraded prompt is sent for you."
     },
     {
       "name": "auto-model",

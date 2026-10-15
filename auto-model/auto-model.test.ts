@@ -126,6 +126,10 @@ describe('judging difficulty by rules', () => {
     expect(isShortReply('continue')).toBe(true)
     expect(isShortReply('ok do it')).toBe(true)
     expect(isShortReply('继续')).toBe(true)
+    expect(isShortReply('好的，继续做吧')).toBe(true)
+    expect(isShortReply('可以，开始吧')).toBe(true)
+    expect(isShortReply('okay')).toBe(true)
+    expect(isShortReply('nothing works anymore')).toBe(false)
     expect(isShortReply('refactor the whole auth module')).toBe(false)
     expect(sizeOf('一二三四五六七八九十')).toBeGreaterThan(4)
   })
@@ -177,6 +181,22 @@ describe('switching the model and effort', () => {
     await step($, 't2')
 
     expect(seen.steps.map(one => one.model)).toEqual(['claude-opus-5-5', 'claude-opus-5-5'])
+  })
+
+  test('a subagent starting mid-turn leaves the main turn\'s plan alone', async ($, on) => {
+    const seen = world(on)
+
+    await $.session.start(START)
+    await startTurn($, 't1', HARD)
+    await $.turn.start({ turnId: 'sub-1', text: 'just list the files', agentId: 'agent-1' })
+    await step($, 't1', { index: 1 })
+
+    expect(seen.steps[0]?.model).toBe('claude-opus-5-5')
+  })
+
+  test('a "list" inside a real task is not a small task', () => {
+    expect(judgeByRules('implement a linked list with insert and delete').tier).not.toBe('easy')
+    expect(judgeByRules('list the files in src').tier).toBe('easy')
   })
 
   test('subagent steps are left as they are', async ($, on) => {
@@ -231,6 +251,23 @@ describe('options', () => {
     expect(seen.judged).toBe(1)
     expect(seen.steps[0]?.model).toBe('claude-opus-5-5')
     expect(seen.steps[0]?.effort).toBe('xhigh')
+  })
+
+  test('with the model judge on, try uses it too, and a tiny prompt skips it', { options: { judge: 'model' } }, async ($, on) => {
+    const seen = world(on, { judgeReply: '{"tier":"hard","why":"needs investigation"}' })
+
+    await $.session.start(START)
+
+    const tried = await command($, `try ${EASY}`)
+    expect(tried.text).toContain('hard (model judge: needs investigation)')
+    expect(seen.judged).toBe(1)
+
+    await startTurn($, 't1', 'fix typo')
+    await step($, 't1')
+    expect(seen.judged).toBe(1)
+
+    const odd = await command($, 'tryhard')
+    expect(odd.text).toContain('auto-model is on')
   })
 
   test('with the model judge on and failing, the rules answer', { options: { judge: 'model' } }, async ($, on) => {

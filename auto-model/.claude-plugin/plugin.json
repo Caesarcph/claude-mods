@@ -1,16 +1,27 @@
 {
   "name": "auto-model",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Picks the model and thinking effort for each turn from how hard your prompt looks: easy prompts go to a fast model, hard ones to a stronger model that thinks longer.",
-  "author": { "name": "chenp" },
+  "author": {
+    "name": "chenp"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "judge": {
       "type": "string",
       "title": "How difficulty is judged",
-      "description": "heuristic: local rules, instant and free. model: a quick call to the easy-tier model reads the prompt first (adds about a second and a small cost), falling back to the rules if it fails.",
+      "description": "heuristic: local rules, instant and free. model: a quick call to the judge model reads the prompt first (adds about a second and a small cost), falling back to the rules if it fails.",
       "default": "heuristic",
-      "options": ["heuristic", "model"]
+      "options": [
+        "heuristic",
+        "model"
+      ]
+    },
+    "judgeModel": {
+      "type": "string",
+      "title": "Judge model",
+      "description": "Model alias or full id that grades prompts when the judge is model. A fast model is enough.",
+      "default": "haiku"
     },
     "easyModel": {
       "type": "string",
@@ -23,7 +34,13 @@
       "title": "Easy prompts: thinking effort",
       "description": "Thinking effort for easy prompts.",
       "default": "low",
-      "options": ["low", "medium", "high", "xhigh", "max"]
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
     },
     "mediumModel": {
       "type": "string",
@@ -36,7 +53,13 @@
       "title": "Medium prompts: thinking effort",
       "description": "Thinking effort for medium prompts.",
       "default": "medium",
-      "options": ["low", "medium", "high", "xhigh", "max"]
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
     },
     "hardModel": {
       "type": "string",
@@ -49,7 +72,13 @@
       "title": "Hard prompts: thinking effort",
       "description": "Thinking effort for hard prompts.",
       "default": "high",
-      "options": ["low", "medium", "high", "xhigh", "max"]
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
     },
     "expertModel": {
       "type": "string",
@@ -62,7 +91,13 @@
       "title": "Expert prompts: thinking effort",
       "description": "Thinking effort for the very hardest prompts.",
       "default": "xhigh",
-      "options": ["low", "medium", "high", "xhigh", "max"]
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
     }
   }
 }

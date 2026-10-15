@@ -13,6 +13,7 @@ import {
   judgePrompt,
   parseJudge,
   resolveModel,
+  sizeOf,
 } from './logic'
 
 type Dollar = EngineInterface
@@ -82,7 +83,8 @@ const decide = async ($: Dollar, text: string, judgeModel: string, options: Plug
     }
   }
 
-  if (options['judge'] === 'model') {
+  // A prompt of a few words gains nothing from a model call: the rules answer at once.
+  if (options['judge'] === 'model' && sizeOf(text) >= 4) {
     try {
       const res = await $.model.complete({
         model: judgeModel,
@@ -90,7 +92,7 @@ const decide = async ($: Dollar, text: string, judgeModel: string, options: Plug
         prompt: judgePrompt(text),
         maxTokens: 80,
         effort: 'low',
-        timeoutMs: 8000,
+        timeoutMs: 5000,
       })
       const verdict = res.isAnswered ? parseJudge(res.text) : null
 
@@ -122,7 +124,7 @@ const statusText = async ($: Dollar, options: PluginOptions): Promise<string> =>
   const plan = await read($, planAtom)
   const overrides = await loadOverrides($)
   const lines = [
-    `auto-model is ${on ? 'on' : 'off'} (judge: ${String(options['judge'] ?? 'heuristic')}).`,
+    `auto-model is ${on ? 'on' : 'off'} (judge: ${options['judge'] === 'model' ? `model, ${asModel(options['judgeModel'], 'haiku')}` : 'heuristic'}).`,
     ...TIERS.map(tier => `  ${tier.padEnd(6)} → ${describeChoice(options, overrides, tier)}`),
   ]
 
@@ -170,18 +172,20 @@ export const register: Register = (on, options) => {
         }
       }
 
-      if (word.startsWith('try')) {
+      if (word === 'try' || word.startsWith('try ')) {
         const sample = args.slice(3).trim()
 
         if (sample === '') {
           return { text: 'Usage: /auto-model try <a prompt>. It shows what would be chosen, without sending anything.' }
         }
 
-        const verdict = judgeByRules(sample)
+        // The same judge a real turn uses, the model one included when it is on.
+        const verdict = await decide($, sample, asModel(options['judgeModel'], 'haiku'), options, null)
         const overrides = await loadOverrides($)
+        const score = verdict.judge === 'model' ? 'model judge' : `score ${verdict.score}`
 
         return {
-          text: `${verdict.tier} (score ${verdict.score}: ${verdict.reason}) → ${describeChoice(options, overrides, verdict.tier)}`,
+          text: `${verdict.tier} (${score}: ${verdict.reason}) → ${describeChoice(options, overrides, verdict.tier)}`,
         }
       }
 
@@ -245,6 +249,11 @@ export const register: Register = (on, options) => {
   }).catch(() => ({ text: 'auto-model hit a problem and did nothing.' }))
 
   on('turn.start', async ($, e, next) => {
+    // A subagent's turn is its own: judging it would replace the main turn's plan mid-turn.
+    if (e.agentId !== undefined) {
+      return next(e)
+    }
+
     try {
       const previous = await read($, planAtom)
 
@@ -263,7 +272,7 @@ export const register: Register = (on, options) => {
         $.ui.status(undefined)
       } else {
         const overrides = await loadOverrides($)
-        const judgeModel = choiceFor(options, overrides, 'easy').model
+        const judgeModel = asModel(options['judgeModel'], 'haiku')
         const verdict = await decide($, e.text, judgeModel, options, previous)
         const choice = choiceFor(options, overrides, verdict.tier)
         let sessionModel = ''
