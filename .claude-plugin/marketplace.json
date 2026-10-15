@@ -1,7 +1,7 @@
 {
   "name": "chenp-mods",
   "owner": {
-    "name": "chenp"
+    "name": "Peihao Chen"
   },
   "description": "Two Claude Code mods: a prompt upgrader and an automatic model picker.",
   "plugins": [
