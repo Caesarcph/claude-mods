@@ -35,12 +35,12 @@ In automatic mode these are sent as typed: slash commands, `!` shell lines, shor
 
 | Tier | Model | Thinking effort |
 |---|---|---|
-| easy | sonnet | high |
+| easy | haiku | high |
 | medium | sonnet | high |
 | hard | opus | high |
 | expert | fable | high |
 
-Change a tier with `/auto-model set <tier> <model> [effort]` (for example `/auto-model set easy haiku low`), or in `/config`. `/auto-model try <prompt>` shows which tier a prompt lands in without sending it.
+Change a tier with `/auto-model set <tier> <model> [effort]` (for example `/auto-model set easy sonnet low`), or in `/config` (`modelEasy`, `effortEasy`, … `modelExpert`, `effortExpert`). `/auto-model try <prompt>` shows which tier a prompt lands in without sending it.
 
 ## Notes
 

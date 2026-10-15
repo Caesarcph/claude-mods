@@ -28,7 +28,7 @@ const unavailableAtom = atom({ plugin: 'auto-model', key: 'unavailable' } as con
 let lastError = ''
 
 const DEFAULTS: Record<Tier, { model: string; effort: Effort }> = {
-  easy: { model: 'sonnet', effort: 'high' },
+  easy: { model: 'haiku', effort: 'high' },
   medium: { model: 'sonnet', effort: 'high' },
   hard: { model: 'opus', effort: 'high' },
   expert: { model: 'fable', effort: 'high' },
@@ -61,14 +61,21 @@ const loadOverrides = async ($: Dollar): Promise<Overrides> => {
   return found
 }
 
-/** What a tier asks for: `/auto-model set` first, then the options, then the defaults. */
+const cap = (tier: Tier) => tier[0]!.toUpperCase() + tier.slice(1)
+
+/**
+ * What a tier asks for: `/auto-model set` first, then the options, then the
+ * defaults. The options are `modelEasy`, `effortEasy` and so on: 0.1's
+ * `easyModel` keys are not read, so values an install saved from the old
+ * defaults no longer hide the new ones.
+ */
 const choiceFor = (
   options: PluginOptions,
   overrides: Overrides,
   tier: Tier,
 ): { model: string; effort: Effort } => ({
-  model: asModel(overrides[tier]?.model, asModel(options[`${tier}Model`], DEFAULTS[tier].model)),
-  effort: asEffort(overrides[tier]?.effort, asEffort(options[`${tier}Effort`], DEFAULTS[tier].effort)),
+  model: asModel(overrides[tier]?.model, asModel(options[`model${cap(tier)}`], DEFAULTS[tier].model)),
+  effort: asEffort(overrides[tier]?.effort, asEffort(options[`effort${cap(tier)}`], DEFAULTS[tier].effort)),
 })
 
 const describeChoice = (options: PluginOptions, overrides: Overrides, tier: Tier): string => {
