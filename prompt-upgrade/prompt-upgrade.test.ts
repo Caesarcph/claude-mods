@@ -198,8 +198,11 @@ describe('reading the model', () => {
       { role: 'user', text: 'Compare Mixtral, Qwen2.5-72B and Qwen3-32B on the server' },
       { role: 'assistant', text: 'start ' + 'x'.repeat(5000) + ' THE CONCLUSION', toolUses: [{ tool: 'Bash', input: { command: 'nvidia-smi' } }] },
       { role: 'user', text: '' },
+      { role: 'user', text: '<command-name>/better</command-name>\n<command-args>on</command-args>' },
       { role: 'assistant', text: 'Download is at 40%.' },
     ])
+
+    expect(context).not.toContain('command-name')
 
     expect(context).toContain('User: Compare Mixtral, Qwen2.5-72B and Qwen3-32B on the server')
     expect(context).toContain('THE CONCLUSION')

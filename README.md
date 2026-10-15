@@ -85,12 +85,8 @@ Start a prompt with `>` to send it exactly as typed.
 
 - **Change a tier:** run `/auto-model set <tier> <model> [effort]`, for example `/auto-model set easy sonnet low`. You can also change the `modelEasy`, `effortEasy`, … `modelExpert`, `effortExpert` options in `/config`.
 - **See where a prompt lands:** `/auto-model try <prompt>` shows the tier without sending anything.
-- **Who judges difficulty:** by default, local rules (keywords, size, code blocks, stack traces, in English and Chinese). Set `judge` to `model` to have a quick model call grade each prompt instead. It uses `judgeModel`, `haiku` by default.
-- **The work counts, not the wording.** A follow-up is judged together with the task it continues. A follow-up is a reply such as "continue" or "好的", or a short instruction that points back, such as "fix it", "do the same for the rest" or "修一下这个".
-  - It gets at least the tier of the last real request in the conversation, and of the turn before it. So "继续" in the middle of a debugging session stays on Opus, even as the first prompt after a resume.
-  - A short prompt that stands on its own, such as "what does ls do?", is judged by itself.
-  - The status line says why: `auto-model: hard (continues: debugging) → claude-opus-5-5 · high`.
-  - With `judge: model`, the judge reads the conversation too: the first request, the latest messages and the tool calls.
+- **Who judges difficulty:** by default a quick `judgeModel` call (`haiku`) reads your prompt together with the conversation: the first request, the latest messages and the tool calls. So "更新我的论文" or "继续" is judged by the work it means, not by its length. If the call fails or takes over 5 s, local rules answer instead (keywords, size, code blocks, stack traces, in English and Chinese). Set `difficultyJudge` to `rules` to use the rules alone.
+- **The work counts, not the wording.** A follow-up such as "继续", "fix it" or "修一下这个" never drops below the tier of the turn it continues. With the rules alone, a follow-up gets at least the tier of the last real request. A short request in the middle of real work is at least medium unless it says it is small. The status line says why, for example `auto-model: hard (Detailed paper revision; multi-part work) → claude-opus-5-5 · high`. `(rules: …)` marks a rules decision.
 - **When a model fails:** the turn carries on with the session's model, and the status line shows the API's reason. Some failures won't clear up during the session: a model your account is not served, or one whose usage limit is spent. Such a model is skipped for the rest of the session.
 
 ## Extra model calls and cost
@@ -100,13 +96,13 @@ Both mods use your own Claude account and its usage limits. Nothing goes to a th
 | Mod | Extra calls | Notes |
 |---|---|---|
 | prompt-upgrade | **2 per upgrade**: one to `questionModel` (medium effort, up to 1,500 output tokens) and one to `rewriteModel` (high effort, up to 3,000 output tokens) | Each call reads your prompt and up to about 12,000 characters of conversation (`memory: recent`). With `memory: full`, both calls run on the session's model over the whole conversation. They are mostly prompt-cache reads, but cost more in a long session. The upgraded prompt is longer than the rough one, so the turn that follows reads a few hundred more tokens. Prompts that automatic mode skips cost nothing. |
-| auto-model | **0** with the default rules judge. **1 per turn** with `judge: model`: a `judgeModel` call of up to 80 output tokens, skipped for prompts under four words | Switching models changes what a turn costs. Haiku and Sonnet cost less than Opus and Fable, and high effort spends more thinking tokens than low. The prompt cache is kept per model, so the first turn on a newly chosen model reads the conversation again without the cache. |
+| auto-model | **1 per turn** by default: a `judgeModel` (haiku) call that reads up to about 6,000 characters of conversation and answers in under 80 tokens, adding about a second before the turn starts. **0** with `difficultyJudge: rules` | Switching models changes what a turn costs. Haiku and Sonnet cost less than Opus and Fable, and high effort spends more thinking tokens than low. The prompt cache is kept per model, so the first turn on a newly chosen model reads the conversation again without the cache. |
 
 To spend less:
 - Lower `maxQuestions`.
 - Keep `/better` manual instead of automatic mode.
 - Lower an effort, for example `/auto-model set easy haiku low`.
-- Turn auto-model off for long sessions with `/auto-model off`.
+- Use `difficultyJudge: rules` to skip the judge call, or turn auto-model off with `/auto-model off`.
 
 ## Notes
 

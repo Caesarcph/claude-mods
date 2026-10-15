@@ -42,8 +42,15 @@ const STACK: Rule = {
   label: 'stack trace',
 }
 
+// Writing and research on the person's own material: a paper, a report, a chapter.
+const DOCUMENT: Rule = {
+  test: /\b(paper|thesis|dissertation|manuscript|report|chapter|literature review|proposal|whitepaper)\b|(论文|报告|章节|综述|文献|手稿|开题|实验部分|方法部分|研究计划|申请书)/i,
+  points: 2,
+  label: 'writing or research',
+}
+
 const THINK_HARD: Rule = {
-  test: /\b(think (?:hard|carefully|deeply)|ultrathink|thorough\w*|in depth|carefully|step by step)\b|(仔细|深入|认真|全面|一步一步|慢慢想)/i,
+  test: /\b(think (?:hard|carefully|deeply)|ultrathink|thorough\w*|in depth|in detail|detailed|comprehensive\w*|carefully|step by step)\b|(仔细|深入|认真|全面|详细|详尽|彻底|系统地|系统性|一步一步|慢慢想)/i,
   points: 2,
   label: 'asked to think hard',
 }
@@ -121,6 +128,7 @@ export function judgeByRules(text: string): Verdict {
   }
 
   add(SCOPE)
+  add(DOCUMENT)
   add(BUILD)
   add(BUILD_ZH)
   add(FIX)
@@ -197,7 +205,7 @@ export function parseJudge(reply: string): { tier: Tier; why: string } | null {
     return null
   }
 
-  const why = /"why"\s*:\s*"([^"]{0,80})"/i.exec(reply)?.[1] ?? ''
+  const why = shortReason(/"why"\s*:\s*"([^"]{0,300})"/i.exec(reply)?.[1] ?? '', 80)
 
   return { tier: tier as Tier, why }
 }
@@ -291,11 +299,17 @@ function clip(text: string, max: number): string {
   return `${line.slice(0, half)} … ${line.slice(line.length - half)}`
 }
 
-/** The messages before this prompt: the transcript may already hold it as its last user message. */
-function before(messages: readonly TaskMessage[], text: string): readonly TaskMessage[] {
-  const last = messages[messages.length - 1]
+/** A slash command's record or output in the transcript ("<command-name>/model</command-name>…"): not a request. */
+export function isCommandRow(text: string): boolean {
+  return /^\s*<(command-name|command-message|local-command-stdout|local-command-stderr)>/.test(text)
+}
 
-  return last !== undefined && last.role === 'user' && last.text.trim() === text.trim() ? messages.slice(0, -1) : messages
+/** The messages before this prompt, slash commands left out: the transcript may already hold it as its last user message. */
+function before(messages: readonly TaskMessage[], text: string): readonly TaskMessage[] {
+  const list = messages.filter(message => !isCommandRow(message.text))
+  const last = list[list.length - 1]
+
+  return last !== undefined && last.role === 'user' && last.text.trim() === text.trim() ? list.slice(0, -1) : list
 }
 
 /** The last request with substance of its own: what a follow-up continues. Falls back to the first request. */
@@ -351,6 +365,13 @@ export function judgeInContext(text: string, messages: readonly TaskMessage[], p
   const own = judgeByRules(text)
 
   if (!isFollowUp(text)) {
+    // A short request in the middle of real work is not a lookup unless it says so.
+    const task = sizeOf(text) < 15 && own.tier === 'easy' && !QUICK.test.test(text) && !EASY_TASK.test.test(text) ? taskRequest(messages, text) : ''
+
+    if (task !== '' && judgeByRules(task).tier !== 'easy') {
+      return { tier: 'medium', score: 1, reason: 'short request in an ongoing task', isContinued: true }
+    }
+
     return { ...own, isContinued: false }
   }
 
