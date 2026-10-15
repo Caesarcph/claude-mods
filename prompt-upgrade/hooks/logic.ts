@@ -315,7 +315,9 @@ function toolLine(use: { tool: string; input: Record<string, unknown> }): string
  * first request (often the overall goal) and the most recent messages, newest
  * kept first when the budget runs out, with one line per tool call.
  */
-export function contextFrom(messages: readonly ContextMessage[], limit = 12000): string {
+export function contextFrom(all: readonly ContextMessage[], limit = 12000): string {
+  // A slash command's record ("<command-name>/model</command-name>…") is no part of the work.
+  const messages = all.filter(message => !/^\s*<(command-name|command-message|local-command-stdout|local-command-stderr)>/.test(message.text))
   const render = (message: ContextMessage, max: number) => {
     const tools = (message.toolUses ?? []).slice(0, 4).map(toolLine).join(' ')
     const text = clip(message.text, max)

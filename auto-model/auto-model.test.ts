@@ -25,7 +25,7 @@ const EXPERT = [
 /** The world beneath the mod: the session's own engine, answered from memory. */
 function world(
   on: any,
-  options: { judgeReply?: string; emptyForOtherModels?: boolean; failWith?: string; engine?: any; messages?: { role: 'user' | 'assistant'; text: string }[] } = {},
+  options: { judgeReply?: string | (() => string); emptyForOtherModels?: boolean; failWith?: string; engine?: any; messages?: { role: 'user' | 'assistant'; text: string }[] } = {},
 ) {
   mock.store(on)
 
@@ -54,7 +54,7 @@ function world(
     return {
       value: options.judgeReply === undefined
         ? { isAnswered: false, reason: 'empty-reply', usage: USAGE }
-        : { isAnswered: true, text: options.judgeReply, usage: USAGE },
+        : { isAnswered: true, text: typeof options.judgeReply === 'function' ? options.judgeReply() : options.judgeReply, usage: USAGE },
     }
   })
   on('turn.step', async function* (_: unknown, e: { turnId: string; index: number; model: string; effort?: unknown; agentId?: string }) {
@@ -211,6 +211,13 @@ describe('switching the model and effort', () => {
     expect(seen.steps[0]?.model).toBe('claude-opus-5-5')
   })
 
+  test('the rules fallback: writing work and asked-for detail are not lookups', () => {
+    expect(judgeByRules('详细的更新我的论文').tier).not.toBe('easy')
+    expect(judgeByRules('revise the methods chapter of my thesis in detail').tier).not.toBe('easy')
+    expect(judgeInContext('改一下摘要', [{ role: 'user', text: 'Refactor the evaluation pipeline and rewrite the experiments section of the paper' }], null).tier).toBe('medium')
+    expect(judgeInContext('what does ls do?', [{ role: 'user', text: 'Refactor the evaluation pipeline and rewrite the experiments section of the paper' }], null).tier).toBe('easy')
+  })
+
   test('a "list" inside a real task is not a small task', () => {
     expect(judgeByRules('implement a linked list with insert and delete').tier).not.toBe('easy')
     expect(judgeByRules('list the files in src').tier).toBe('easy')
@@ -258,7 +265,7 @@ describe('options', () => {
     expect(seen.steps[0]?.effort).toBe('max')
   })
 
-  test('with the model judge on, its tier is used', { options: { judge: 'model' } }, async ($, on) => {
+  test('with the model judge on, its tier is used', { options: { difficultyJudge: 'model' } }, async ($, on) => {
     const seen = world(on, { judgeReply: '{"tier":"expert","why":"risky migration"}' })
 
     await $.session.start(START)
@@ -270,8 +277,11 @@ describe('options', () => {
     expect(seen.steps[0]?.effort).toBe('high')
   })
 
-  test('with the model judge on, try uses it too, and a tiny prompt skips it', { options: { judge: 'model' } }, async ($, on) => {
-    const seen = world(on, { judgeReply: '{"tier":"hard","why":"needs investigation"}' })
+  test('the model judge is the default, reads the conversation, and try uses it too', async ($, on) => {
+    const seen = world(on, {
+      judgeReply: '{"tier":"hard","why":"needs investigation"}',
+      messages: [{ role: 'user', text: 'Find the root cause of the deadlock in the job scheduler and fix it across the services' }],
+    })
 
     await $.session.start(START)
 
@@ -279,15 +289,35 @@ describe('options', () => {
     expect(tried.text).toContain('hard (model judge: needs investigation)')
     expect(seen.judged).toBe(1)
 
-    await startTurn($, 't1', 'fix typo')
+    // A short request is judged by the model with the conversation: "更新我的论文" is real work.
+    await startTurn($, 't1', '详细的更新我的论文')
     await step($, 't1')
-    expect(seen.judged).toBe(1)
+    expect(seen.judged).toBe(2)
+    expect(seen.judgePrompts[1]).toContain('deadlock')
+    expect(seen.steps[0]?.model).toBe('claude-opus-5-5')
+
+    // "继续" is judged with the conversation too, and keeps at least the last turn's tier.
+    await startTurn($, 't2', '继续')
+    await step($, 't2')
+    expect(seen.judged).toBe(3)
+    expect(seen.steps[1]?.model).toBe('claude-opus-5-5')
 
     const odd = await command($, 'tryhard')
     expect(odd.text).toContain('auto-model is on')
   })
 
-  test('with the model judge on and failing, the rules answer', { options: { judge: 'model' } }, async ($, on) => {
+  test('difficultyJudge: rules keeps to the local rules', { options: { difficultyJudge: 'rules' } }, async ($, on) => {
+    const seen = world(on, { judgeReply: '{"tier":"expert","why":"x"}' })
+
+    await $.session.start(START)
+    await startTurn($, 't1', EASY)
+    await step($, 't1')
+
+    expect(seen.judged).toBe(0)
+    expect(seen.statuses.at(-1)).toContain('(rules: ')
+  })
+
+  test('with the model judge on and failing, the rules answer', { options: { difficultyJudge: 'model' } }, async ($, on) => {
     const seen = world(on)
 
     await $.session.start(START)
@@ -456,6 +486,9 @@ describe('judging the work, not the wording', () => {
     expect(isFollowUp('修一下这个')).toBe(true)
     expect(isFollowUp('what does ls do?')).toBe(false)
     expect(taskRequest([...DEBUGGING, { role: 'user', text: '继续' }], '继续')).toBe(DEBUGGING[0]!.text)
+    // A slash command in between is not the task.
+    const command = { role: 'user' as const, text: '<command-name>/model</command-name>\n<command-message>model</command-message>' }
+    expect(taskRequest([...DEBUGGING, command, { role: 'user', text: '继续' }], '继续')).toBe(DEBUGGING[0]!.text)
 
     const continued = judgeInContext('继续', DEBUGGING, null)
     expect(continued.tier).not.toBe('easy')
@@ -477,15 +510,20 @@ describe('judging the work, not the wording', () => {
     expect(seen.statuses.at(-1)).toContain('auto-model: hard')
   })
 
-  test('the model judge reads the conversation, and a follow-up never drops below its task', { options: { judge: 'model' } }, async ($, on) => {
-    const seen = world(on, { judgeReply: '{"tier":"easy","why":"short instruction"}', messages: DEBUGGING })
+  test('the model judge reads the conversation, and a follow-up never drops below the turn it continues', async ($, on) => {
+    let reply = '{"tier":"hard","why":"race condition debugging"}'
+    const seen = world(on, { messages: DEBUGGING, judgeReply: () => reply })
 
     await $.session.start(START)
-    await startTurn($, 't1', 'ok fix both of them now please')
+    await startTurn($, 't1', DEBUGGING[0]!.text)
     await step($, 't1')
 
-    expect(seen.judgePrompts[0]).toContain('<conversation>')
-    expect(seen.judgePrompts[0]).toContain('race condition')
-    expect(seen.steps[0]?.model).not.toBe('claude-haiku-5-5')
+    reply = '{"tier":"easy","why":"short instruction"}'
+    await startTurn($, 't2', 'ok fix both of them now please')
+    await step($, 't2')
+
+    expect(seen.judgePrompts[1]).toContain('<conversation>')
+    expect(seen.judgePrompts[1]).toContain('race condition')
+    expect(seen.steps.map(one => one.model)).toEqual(['claude-opus-5-5', 'claude-opus-5-5'])
   })
 })

@@ -1,20 +1,20 @@
 {
   "name": "auto-model",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Picks the model for each turn from how hard your prompt looks: haiku, sonnet, opus or fable, with high thinking effort on every tier by default.",
   "author": {
     "name": "chenp"
   },
   "types": "./types/index.d.ts",
   "userConfig": {
-    "judge": {
+    "difficultyJudge": {
       "type": "string",
       "title": "How difficulty is judged",
-      "description": "heuristic: local rules, instant and free. model: a quick call to the judge model reads the prompt first (adds about a second and a small cost), falling back to the rules if it fails.",
-      "default": "heuristic",
+      "description": "model (default): a quick call to the judge model reads your prompt together with the conversation, so \"继续\" or \"更新我的论文\" is judged by the work it means; adds about a second per turn and a small cost. rules: local keyword rules only, instant and free; they also answer whenever the model call fails.",
+      "default": "model",
       "options": [
-        "heuristic",
-        "model"
+        "model",
+        "rules"
       ]
     },
     "judgeModel": {

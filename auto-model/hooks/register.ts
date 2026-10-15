@@ -15,7 +15,6 @@ import {
   isShortReply,
   judgeInContext,
   judgePrompt,
-  sizeOf,
   parseJudge,
   resolveModel,
   isLasting,
@@ -90,6 +89,14 @@ const describeChoice = (options: PluginOptions, overrides: Overrides, tier: Tier
 
 const isEnabled = async ($: Dollar): Promise<boolean> => (await $.store.get('enabled')) !== false
 
+/**
+ * The model judge is the default: a quick call that reads the prompt with the
+ * conversation. `difficultyJudge: rules` keeps to the local rules, which also
+ * answer whenever the call fails. (0.4's `judge` key is not read: installs
+ * saved its old default, `heuristic`, under it.)
+ */
+const usesModelJudge = (options: PluginOptions) => options['difficultyJudge'] !== 'rules'
+
 /** The conversation so far, for judging a prompt in context; empty when it cannot be read. */
 const readMessages = async ($: Dollar): Promise<TaskMessage[]> => {
   try {
@@ -109,11 +116,7 @@ const decide = async ($: Dollar, text: string, judgeModel: string, options: Plug
   const previousTier = previous !== null && previous.isActive ? previous.tier : null
   const byRules = judgeInContext(text, messages, previousTier)
 
-  // No model call where it adds nothing: a bare reply its task already decided,
-  // or a prompt of a few words that stands on its own.
-  const isTrivial = (isShortReply(text) && byRules.isContinued) || (!isFollowUp(text) && sizeOf(text) < 4)
-
-  if (options['judge'] === 'model' && !isTrivial) {
+  if (usesModelJudge(options)) {
     try {
       const res = await $.model.complete({
         model: judgeModel,
@@ -126,8 +129,9 @@ const decide = async ($: Dollar, text: string, judgeModel: string, options: Plug
       const verdict = res.isAnswered ? parseJudge(res.text) : null
 
       if (verdict !== null) {
-        // A follow-up never drops below the task it continues.
-        const tier = isFollowUp(text) ? harder(verdict.tier, byRules.tier) : verdict.tier
+        // The judge read the conversation, so its tier stands; a follow-up
+        // ("继续") just never drops below the turn it continues.
+        const tier = isFollowUp(text) && previousTier !== null ? harder(verdict.tier, previousTier) : verdict.tier
 
         return {
           tier,
@@ -147,14 +151,14 @@ const decide = async ($: Dollar, text: string, judgeModel: string, options: Plug
 const statusLine = (plan: Plan): string =>
   plan.isFallback
     ? `auto-model: ${plan.model} failed (${plan.failure === '' ? 'no response' : plan.failure}); this turn uses the session's model`
-    : `auto-model: ${plan.tier} (${shortReason(plan.reason, 60)}) → ${plan.model} · ${plan.effort}`
+    : `auto-model: ${plan.tier} (${plan.judge === 'model' ? '' : 'rules: '}${shortReason(plan.reason, 60)}) → ${plan.model} · ${plan.effort}`
 
 const statusText = async ($: Dollar, options: PluginOptions): Promise<string> => {
   const on = await isEnabled($)
   const plan = await read($, planAtom)
   const overrides = await loadOverrides($)
   const lines = [
-    `auto-model is ${on ? 'on' : 'off'} (judge: ${options['judge'] === 'model' ? `model, ${asModel(options['judgeModel'], 'haiku')}` : 'heuristic'}).`,
+    `auto-model is ${on ? 'on' : 'off'} (difficulty judged by ${usesModelJudge(options) ? `${asModel(options['judgeModel'], 'haiku')} reading the conversation, rules as fallback` : 'the local rules'}).`,
     ...TIERS.map(tier => `  ${tier.padEnd(6)} → ${describeChoice(options, overrides, tier)}`),
   ]
 
