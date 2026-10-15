@@ -53,7 +53,7 @@ To update later, run `/plugin marketplace update chenp-mods` and `/plugin update
 2. Up to three questions pop up one after another. Each has options and an "Other" box for your own answer. Press **Esc** to cancel: your prompt goes back into the prompt box and nothing is sent.
 3. The upgraded prompt is sent as your message. A line above it says how much the prompt grew and what was added.
 
-The questions take the last few messages of the conversation into account, so they don't ask about something you just discussed. Questions and the rewrite are written in the language of your prompt.
+The questions read the conversation first: its first request, its latest messages and the tools that ran. They don't ask what was already settled, and the options are specific to your work. The rewrite fills in names the conversation already gave, such as files, models and servers. Questions and the rewrite are written in the language of your prompt.
 
 | Option (`/config`) | Default | Meaning |
 |---|---|---|
@@ -61,6 +61,7 @@ The questions take the last few messages of the conversation into account, so th
 | `rewriteModel` | `sonnet` | Model that writes the upgraded prompt |
 | `maxQuestions` | `3` | At most 1–4 questions. Fewer, or none, when the prompt is already clear |
 | `review` | `send` | `review` adds one last dialog: send, edit first, or send your original |
+| `memory` | `recent` | How much of the conversation the questions and the rewrite see. `recent`: the first request plus the latest messages and tool calls, up to about 12,000 characters. `full`: the whole conversation, by asking the main conversation itself (session model, from the prompt cache) |
 
 **Automatic mode** (`/better on`) works on the prompt as you send it. Nothing is blocked: the questions appear right after you press Enter, and what goes to Claude is the upgraded prompt. Press Esc on a question to skip the upgrade and send your prompt as typed. Press Esc while it is rewriting to cancel; the prompt goes back into the box.
 
@@ -94,7 +95,7 @@ Both mods use your own Claude account and its usage limits. Nothing goes to a th
 
 | Mod | Extra calls | Notes |
 |---|---|---|
-| prompt-upgrade | **2 per upgrade**: one to `questionModel` (low effort, up to 1,500 output tokens) and one to `rewriteModel` (high effort, up to 3,000 output tokens) | Each call reads your prompt and up to about 3,000 characters of recent conversation. The upgraded prompt is longer than the rough one, so the turn that follows reads a few hundred more tokens. Prompts that automatic mode skips cost nothing. |
+| prompt-upgrade | **2 per upgrade**: one to `questionModel` (medium effort, up to 1,500 output tokens) and one to `rewriteModel` (high effort, up to 3,000 output tokens) | Each call reads your prompt and up to about 12,000 characters of conversation (`memory: recent`). With `memory: full`, both calls run on the session's model over the whole conversation. They are mostly prompt-cache reads, but cost more in a long session. The upgraded prompt is longer than the rough one, so the turn that follows reads a few hundred more tokens. Prompts that automatic mode skips cost nothing. |
 | auto-model | **0** with the default rules judge. **1 per turn** with `judge: model`: a `judgeModel` call of up to 80 output tokens, skipped for prompts under four words | Switching models changes what a turn costs. Haiku and Sonnet cost less than Opus and Fable, and high effort spends more thinking tokens than low. The prompt cache is kept per model, so the first turn on a newly chosen model reads the conversation again without the cache. |
 
 To spend less:

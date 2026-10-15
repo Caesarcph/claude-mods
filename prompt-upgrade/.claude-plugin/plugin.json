@@ -39,6 +39,16 @@
         "send",
         "review"
       ]
+    },
+    "memory": {
+      "type": "string",
+      "title": "How much of the conversation the upgrade sees",
+      "description": "recent: the first request and the latest messages (up to about 12,000 characters) go to the question and rewrite models; cheap. full: the questions and the rewrite are asked of the main conversation itself, with all of it in view, on the session's model from the prompt cache; best memory, costs more.",
+      "default": "recent",
+      "options": [
+        "recent",
+        "full"
+      ]
     }
   },
   "license": "MIT"

@@ -22,7 +22,7 @@ import type { Given, HistoryItem, Question, Verdict } from './logic'
 
 type Dollar = EngineInterface
 
-type Settings = { questionModel: string; rewriteModel: string; maxQuestions: number; isReview: boolean }
+type Settings = { questionModel: string; rewriteModel: string; maxQuestions: number; isReview: boolean; isFullMemory: boolean }
 
 const say = (zh: boolean, chinese: string, english: string) => (zh ? chinese : english)
 
@@ -37,6 +37,7 @@ const settingsOf = (options: PluginOptions): Settings => {
     rewriteModel: textOption(options['rewriteModel'], 'sonnet'),
     maxQuestions: Number.isFinite(max) ? Math.max(1, Math.min(4, max)) : 3,
     isReview: options['review'] === 'review',
+    isFullMemory: options['memory'] === 'full',
   }
 }
 
@@ -91,6 +92,36 @@ const putBack = async ($: Dollar, text: string) => {
   } catch {
     // Nothing more to do: the log line says what happened.
   }
+}
+
+// Said ahead of a fork's request: the fork is the main conversation itself, so it must not take the request as the task.
+const FORK_HEAD = [
+  'This message is from the Prompt Upgrade plugin, not from the user. Do not use tools and do not start on any task.',
+  'The user is about to send the rough prompt below as their next message. Using everything in this conversation, follow the instructions below.',
+].join(' ')
+
+type Call = { model: string; system: string; prompt: string; maxTokens: number; effort: 'low' | 'medium' | 'high'; timeoutMs: number }
+
+/**
+ * One model call of the upgrade. With memory set to full it is a fork of the
+ * main conversation (the session's model, the whole transcript, from the
+ * prompt cache); when there is nothing to fork yet or the fork fails, and
+ * otherwise, it is a plain completion over the recent conversation.
+ */
+const callModel = async ($: Dollar, settings: Settings, call: Call, forkPrompt: string) => {
+  if (settings.isFullMemory) {
+    try {
+      const forked = await $.model.fork({ prompt: `${FORK_HEAD}\n\n${call.system}\n\n${forkPrompt}` })
+
+      if (forked.isAnswered) {
+        return forked
+      }
+    } catch {
+      // The plain completion below answers instead.
+    }
+  }
+
+  return $.model.complete(call)
 }
 
 const readContext = async ($: Dollar): Promise<string> => {
@@ -183,14 +214,19 @@ const prepare = async ($: Dollar, original: string, settings: Settings): Promise
     $.ui.status(say(zh, 'Prompt Upgrade：正在看你的提示词…', 'Prompt Upgrade: reading your prompt…'))
 
     const context = await readContext($)
-    const asked = await $.model.complete({
-      model: settings.questionModel,
-      system: questionSystem(settings.maxQuestions),
-      prompt: questionPrompt(original, context),
-      maxTokens: 1500,
-      effort: 'low',
-      timeoutMs: 30000,
-    })
+    const asked = await callModel(
+      $,
+      settings,
+      {
+        model: settings.questionModel,
+        system: questionSystem(settings.maxQuestions),
+        prompt: questionPrompt(original, context),
+        maxTokens: 1500,
+        effort: 'medium',
+        timeoutMs: 30000,
+      },
+      questionPrompt(original, ''),
+    )
     // Questions help but are not needed: without them the rewrite still runs.
     const questions = asked.isAnswered ? (parseQuestions(asked.text, settings.maxQuestions) ?? []) : []
     let answers: Given[] = []
@@ -209,14 +245,19 @@ const prepare = async ($: Dollar, original: string, settings: Settings): Promise
 
     $.ui.status(say(zh, 'Prompt Upgrade：正在改写…', 'Prompt Upgrade: writing the upgrade…'))
 
-    const written = await $.model.complete({
-      model: settings.rewriteModel,
-      system: REWRITE_SYSTEM,
-      prompt: rewritePrompt(original, answers, context),
-      maxTokens: 3000,
-      effort: 'high',
-      timeoutMs: 90000,
-    })
+    const written = await callModel(
+      $,
+      settings,
+      {
+        model: settings.rewriteModel,
+        system: REWRITE_SYSTEM,
+        prompt: rewritePrompt(original, answers, context),
+        maxTokens: 3000,
+        effort: 'high',
+        timeoutMs: 90000,
+      },
+      rewritePrompt(original, answers, ''),
+    )
     const out = written.isAnswered ? parseRewrite(written.text) : null
 
     if (out === null) {
